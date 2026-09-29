@@ -1,0 +1,11 @@
+node_modules/
+dist/
+# Echte Haushaltsdaten und private Vergleichstests nie ins Repo
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!public/manifest.webmanifest
+tests/private/
+*.csv
+.DS_Store
