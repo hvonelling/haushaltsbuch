@@ -10,10 +10,10 @@
     "noImplicitAny": true,
     "noUnusedLocals": true,
     "skipLibCheck": true,
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["src", "tests", "vite.config.ts"],
+  "include": ["src", "tests", "scripts", "vite.config.ts"],
   "exclude": ["tests/private"]
 }

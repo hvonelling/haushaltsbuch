@@ -16,6 +16,19 @@ Abgeglichen wird über eine gemeinsame Datei `haushaltsbuch.json` in iCloud Driv
 Beim Zusammenführen gewinnt pro Buchung die zuletzt bearbeitete Fassung; gelöschte Buchungen bleiben gelöscht.
 Für Einstellungen (Fixkosten, Konten, Budgets, Einkommen) gilt der zuletzt geänderte Stand.
 
+## Verschlüsselte Sicherung
+
+Für die Ablage in einem privaten Git-Repo lässt sich die Sicherung verschlüsseln
+(PBKDF2-SHA-256 mit 600.000 Runden, gzip, AES-256-GCM; Format in `src/storage/crypto.ts`):
+
+```
+npm run encrypt -- haushaltsbuch.json haushaltsbuch.enc.json --neues-passwort passwort.txt
+npm run decrypt -- haushaltsbuch.enc.json haushaltsbuch.json
+```
+
+Ohne `--neues-passwort` wird das Passwort verdeckt abgefragt (oder aus `HB_PASSWORD` gelesen).
+Nach dem Verschlüsseln prüft das Skript per Entschlüsseln, dass der Inhalt exakt übereinstimmt.
+
 ## Entwicklung
 
 ```
