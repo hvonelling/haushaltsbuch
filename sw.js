@@ -1,6 +1,6 @@
 // Offline-Unterstützung: Die App-Dateien werden auf dem Gerät zwischengespeichert.
 // Eure Haushaltsdaten liegen nicht hier, sondern im Speicher des Browsers.
-const CACHE = "haushaltsbuch-v1";
+const CACHE = "haushaltsbuch-v2";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => {
