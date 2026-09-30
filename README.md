@@ -4,7 +4,9 @@ Gemeinsames Haushaltsbuch für zwei Personen, gedacht für iPhone und Rechner.
 Buchungen, Budgets, Fixkosten, Töpfe und eine Vermögensplanung mit Elterngeld- und Krankengeld-Szenarien.
 
 **Eure Daten liegen nie in diesem Repository.** Die App speichert im Browser des Geräts.
-Abgeglichen wird über eine gemeinsame Datei `haushaltsbuch.json` in iCloud Drive.
+Abgeglichen wird automatisch über eine verschlüsselte Datei in einem eigenen, privaten GitHub-Repo
+(Mehr → GitHub-Abgleich). Zugangsschlüssel und Passwort bleiben auf dem jeweiligen Gerät.
+Alternativ geht der Abgleich per Datei über iCloud Drive.
 
 ## Nutzung
 
@@ -44,7 +46,7 @@ Aufbau:
 - `src/domain` – Rechenlogik ohne Oberfläche (Kategorien, CSV-Import, Fixkosten, Töpfe, Einkommen, Planung, Zusammenführen)
 - `src/screens` – die Bildschirme
 - `src/app` – App-Zustand, Aktionen, gemeinsamer Rechenkontext
-- `src/storage` – Speicherung auf dem Gerät und Datei-Abgleich (austauschbar für einen späteren Server)
+- `src/storage` – Speicherung auf dem Gerät, GitHub-Abgleich (`github.ts`), Verschlüsselung (`crypto.ts`), Datei-Abgleich
 
 Die Bank-Anbindung (Enable Banking über einen eigenen Abrufdienst) ist vorbereitet,
 aber in `src/app/features.ts` ausgeschaltet, bis der Dienst existiert.

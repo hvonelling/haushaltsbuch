@@ -13,6 +13,7 @@ import { normKey, recat } from "../domain/rules";
 import type { BankAsk, CalEvent, Data, Tx } from "../domain/types";
 import { localStore } from "../storage/local";
 import { readFiles, saveBackupFile } from "../storage/icloudFile";
+import { githubConfig, sync as githubSync, type GitHubConfig } from "../storage/github";
 import { initialState, type UiState } from "./state";
 import { renderApp } from "./render";
 
@@ -38,10 +39,15 @@ type ListName = "persons" | "fixed" | "accounts" | "periods" | "pots" | "events"
 export class App extends Component<object, UiState> {
   private _syncing = false;
   private _bq: ReturnType<typeof setTimeout> | undefined;
+  private _ghTimer: ReturnType<typeof setTimeout> | undefined;
+  private _ghBusy = false;
+  private _ghAgain = false;
+  /** Datenstand, der gerade aus dem GitHub-Abgleich kam (löst keinen neuen Abgleich aus). */
+  private _ghData: Data | null = null;
 
   constructor() {
     super();
-    this.state = initialState(localStore.load());
+    this.state = { ...initialState(localStore.load()), gh: githubConfig.load() };
   }
 
   set(p: Patch) {
@@ -52,10 +58,29 @@ export class App extends Component<object, UiState> {
     const r = adoptSug(this.state.data);
     if (r.n) this.setState({ data: r.d, msg: r.n + " neue Fixkosten erkannt und übernommen." });
     setTimeout(() => this.bankSync(false), 300);
+    setTimeout(() => this.ghSync(), 200);
+    document.addEventListener("visibilitychange", this.onVisible);
+    window.addEventListener("online", this.onVisible);
   }
 
+  componentWillUnmount() {
+    document.removeEventListener("visibilitychange", this.onVisible);
+    window.removeEventListener("online", this.onVisible);
+  }
+
+  private onVisible = () => {
+    if (document.visibilityState === "visible") this.ghSync();
+  };
+
   componentDidUpdate(_: object, ps: UiState) {
-    if (this.state.data !== ps.data) this.persist(this.state.data);
+    if (this.state.data !== ps.data) {
+      this.persist(this.state.data);
+      // Eigene Änderung: kurz danach mit GitHub abgleichen (mehrere Änderungen werden gebündelt).
+      if (this.state.data !== this._ghData && this.state.gh) {
+        clearTimeout(this._ghTimer);
+        this._ghTimer = setTimeout(() => this.ghSync(), 4000);
+      }
+    }
     if (this.state.view === "bank" && ps.view !== "bank") this.bankStatus();
   }
 
@@ -86,6 +111,91 @@ export class App extends Component<object, UiState> {
         nd.snapshots = { ...d.snapshots, [TODAY_YM()]: total(nd.accounts) };
       return nd;
     }, true);
+  }
+
+  // ------------------------------------------------------------ GitHub-Abgleich
+
+  /** Einen Abgleich mit der verschlüsselten Datei im GitHub-Repo durchführen. */
+  async ghSync(manual = false) {
+    const cfg = this.state.gh;
+    if (!cfg) return;
+    if (this._ghBusy) {
+      this._ghAgain = true;
+      return;
+    }
+    clearTimeout(this._ghTimer);
+    this._ghBusy = true;
+    this.setState({ ghBusy: true });
+    const start = this.state.data;
+    try {
+      const r = await githubSync(start, cfg);
+      const again = this.state.data !== start;
+      const nextCfg: GitHubConfig = { ...cfg, lastSync: Date.now(), lastErr: null };
+      githubConfig.save(nextCfg);
+      this.setState((s) => {
+        // Während des Abgleichs Geändertes nicht verlieren: noch einmal zusammenführen.
+        const d = s.data !== start ? mergeBackup(s.data, r.d).d : r.d;
+        this._ghData = d;
+        const news = [r.added > 0 ? r.added + " neue Buchungen vom anderen Gerät übernommen." : "", r.newFixed ? r.newFixed + " neue Fixkosten erkannt." : ""]
+          .filter(Boolean)
+          .join(" ");
+        return {
+          data: d,
+          gh: s.gh ? nextCfg : s.gh,
+          ghBusy: false,
+          ...(news ? { msg: news } : manual ? { msg: r.pushed ? "Mit GitHub abgeglichen und gespeichert." : "Mit GitHub abgeglichen – alles aktuell." } : {}),
+        };
+      });
+      if (again) this._ghAgain = true;
+    } catch (e) {
+      const err = (e as Error).message || "Abgleich fehlgeschlagen.";
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      const nextCfg: GitHubConfig = { ...cfg, lastErr: offline ? "Offline – wird nachgeholt." : err };
+      githubConfig.save(nextCfg);
+      this.setState((s) => ({ gh: s.gh ? nextCfg : s.gh, ghBusy: false, ...(manual || !offline ? { msg: "GitHub-Abgleich: " + nextCfg.lastErr } : {}) }));
+    } finally {
+      this._ghBusy = false;
+      if (this._ghAgain) {
+        this._ghAgain = false;
+        this._ghTimer = setTimeout(() => this.ghSync(), 1500);
+      }
+    }
+  }
+
+  /** Verbindung prüfen (Datei lesen, entschlüsseln, zusammenführen) und erst dann speichern. */
+  async ghConnect(cfg: GitHubConfig) {
+    if (!cfg.repo.trim() || !cfg.token.trim() || !cfg.password) {
+      this.setState({ msg: "Bitte Repo, Zugangsschlüssel und Passwort eintragen." });
+      return;
+    }
+    this.setState({ ghBusy: true });
+    const start = this.state.data;
+    try {
+      const r = await githubSync(start, cfg);
+      const saved: GitHubConfig = { ...cfg, repo: cfg.repo.trim(), token: cfg.token.trim(), lastSync: Date.now(), lastErr: null };
+      githubConfig.save(saved);
+      this.setState((s) => {
+        const d = s.data !== start ? mergeBackup(s.data, r.d).d : r.d;
+        this._ghData = d;
+        return {
+          data: d,
+          gh: saved,
+          ghDraft: undefined,
+          ghBusy: false,
+          syncStep: null,
+          month: null,
+          msg: "Verbunden. " + d.tx.length + " Buchungen abgeglichen" + (r.pushed ? " und in GitHub gespeichert." : "."),
+        };
+      });
+    } catch (e) {
+      this.setState({ ghBusy: false, msg: "Verbindung fehlgeschlagen: " + (e as Error).message });
+    }
+  }
+
+  ghDisconnect() {
+    if (!confirm("GitHub-Abgleich auf diesem Gerät beenden? Zugangsschlüssel und Passwort werden hier gelöscht, eure Daten bleiben erhalten.")) return;
+    githubConfig.save(null);
+    this.setState({ gh: null, msg: "GitHub-Abgleich auf diesem Gerät beendet." });
   }
 
   // ------------------------------------------------------------ Bank-Anbindung (braucht den späteren Server)

@@ -507,7 +507,8 @@ export function Overview({ c }: { c: Ctx }) {
         )}
         {v.hasBankAsk && <AlertRow text={v.bankAskText} onClick={() => app.setState({ askOpen: true })} />}
         {v.hasNewFix && <AlertRow text={v.newFixText} onClick={() => go("planung", "fixkosten")} />}
-        {v.dirty && <AlertRow text="Ungesicherte Änderungen – mit iCloud abgleichen" onClick={() => go("mehr", null)} />}
+        {v.dirty && !c.s.gh && <AlertRow text="Ungesicherte Änderungen – mit iCloud abgleichen" onClick={() => go("mehr", null)} />}
+        {!!c.s.gh?.lastErr && !c.s.ghBusy && <AlertRow text={"GitHub-Abgleich: " + c.s.gh.lastErr} onClick={() => go("mehr", "github")} />}
 
         {v.noTx && (
           <section style="display:flex;flex-direction:column;gap:var(--space-3);border-top:1px solid var(--color-divider);padding-top:var(--space-4)">

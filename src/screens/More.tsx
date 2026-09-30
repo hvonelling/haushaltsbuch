@@ -11,6 +11,7 @@ import type { Ctx } from "../app/ctx";
 import { BANK_ENABLED } from "../app/features";
 import { NavRow, Sheet, val } from "../ui/parts";
 import { potsDueRows } from "./Pots";
+import { DEFAULT_PATH, type GitHubConfig } from "../storage/github";
 
 const fileInput = "position:absolute;width:1px;height:1px;opacity:0";
 
@@ -27,6 +28,7 @@ export function MoreScreen({ c }: { c: Ctx }) {
   const moreRows = [
     { label: "Kategorien & Budgets", value: Object.keys(budgets).length + " Budgets", go: goView.kategorien },
     { label: "Töpfe", value: pots.length + (pots.length === 1 ? " Topf" : " Töpfe") + (dueN ? " · " + dueN + " Sparrate offen" : ""), go: goView.toepfe },
+    { label: "GitHub-Abgleich", value: s.gh ? (s.gh.lastErr ? "Fehler" : "aktiv") : "nicht eingerichtet", go: goView.github },
     { label: "Bankimport", value: "DKB · Sparkasse", go: goView.import },
     ...(BANK_ENABLED
       ? [
@@ -44,64 +46,172 @@ export function MoreScreen({ c }: { c: Ctx }) {
   ];
   const saving = s.syncStep === "save";
   const firstFile = !d.savedAt && d.tx.length > 0;
+  const gh = s.gh;
+  const showFile = !gh || saving || !!s.showFile;
+  const fileSection = (
+    <section style="display:flex;flex-direction:column;gap:var(--space-3)">
+      <span
+        style={
+          "font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:" +
+          ((dirty && !gh) || saving ? "var(--color-accent-700)" : "var(--color-neutral-700)")
+        }
+      >
+        {saving ? "Zusammengeführt – noch nicht zurückgesichert" : gh ? "Abgleich per Datei (iCloud)" : syncText}
+      </span>
+      {saving ? (
+        <>
+          <button class="btn btn-primary" onClick={() => app.saveFile()} style="min-height:48px">
+            Schritt 2: Zurück in iCloud sichern
+          </button>
+          <span style="font-size:13px;color:var(--color-neutral-700)">
+            Am iPhone: „In Dateien sichern“ → geteilter Ordner „Haushaltsbuch“ → Ersetzen. Am Rechner: die heruntergeladene Datei auf icloud.com in
+            den Ordner hochladen und ersetzen.
+          </span>
+          <button class="btn btn-ghost" onClick={() => app.setState({ syncStep: null })} style="align-self:flex-start">
+            Später
+          </button>
+        </>
+      ) : (
+        <>
+          <label class={gh ? "btn btn-secondary" : "btn btn-primary"} style="min-height:48px;position:relative">
+            Abgleichen: iCloud-Datei wählen
+            <input type="file" accept=".json,application/json" onChange={(e) => app.onJsonFile(e)} style={fileInput} />
+          </label>
+          <span style="font-size:13px;color:var(--color-neutral-700)">
+            Schritt 1 wählt haushaltsbuch.json aus dem geteilten Ordner und führt sie mit diesem Gerät zusammen. Danach erscheint Schritt 2 zum
+            Zurücksichern. So gehen Buchungen der anderen Person nie verloren.
+          </span>
+          {firstFile && !gh && (
+            <button
+              class="btn btn-ghost"
+              style="align-self:flex-start"
+              onClick={() => {
+                if (
+                  confirm(
+                    "Nur verwenden, wenn es in iCloud noch keine haushaltsbuch.json gibt. Sonst bitte zuerst „Abgleichen“, damit nichts überschrieben wird. Erste Sicherung jetzt anlegen?",
+                  )
+                )
+                  app.saveFile();
+              }}
+            >
+              Noch keine Datei in iCloud? Erste Sicherung anlegen
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
   return (
     <main style="display:flex;flex-direction:column;gap:var(--space-6)">
       <h1 style="margin:0;font-size:38px">Mehr</h1>
-      <section style="display:flex;flex-direction:column;gap:var(--space-3)">
-        <span
-          style={
-            "font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:" +
-            (dirty || saving ? "var(--color-accent-700)" : "var(--color-neutral-700)")
-          }
-        >
-          {saving ? "Zusammengeführt – noch nicht zurückgesichert" : syncText}
-        </span>
-        {saving ? (
-          <>
-            <button class="btn btn-primary" onClick={() => app.saveFile()} style="min-height:48px">
-              Schritt 2: Zurück in iCloud sichern
+      {gh && (
+        <section style="display:flex;flex-direction:column;gap:var(--space-3)">
+          <span
+            style={
+              "font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:" +
+              (gh.lastErr ? "var(--color-text)" : "var(--color-neutral-700)") +
+              ";font-weight:" +
+              (gh.lastErr ? 600 : 400)
+            }
+          >
+            {ghStatus(gh, !!s.ghBusy)}
+          </span>
+          <button class="btn btn-primary" onClick={() => app.ghSync(true)} disabled={!!s.ghBusy} style="min-height:48px">
+            {s.ghBusy ? "Wird abgeglichen …" : "Jetzt mit GitHub abgleichen"}
+          </button>
+          <span style="font-size:13px;color:var(--color-neutral-700)">
+            Gleicht automatisch ab: beim Öffnen und kurz nach jeder Änderung. Buchungen der anderen Person kommen dabei herein.
+          </span>
+          {!showFile && (
+            <button class="btn btn-ghost" style="align-self:flex-start" onClick={() => app.setState({ showFile: true })}>
+              Stattdessen per Datei abgleichen
             </button>
-            <span style="font-size:13px;color:var(--color-neutral-700)">
-              Am iPhone: „In Dateien sichern“ → geteilter Ordner „Haushaltsbuch“ → Ersetzen. Am Rechner: die heruntergeladene Datei auf icloud.com in
-              den Ordner hochladen und ersetzen.
-            </span>
-            <button class="btn btn-ghost" onClick={() => app.setState({ syncStep: null })} style="align-self:flex-start">
-              Später
-            </button>
-          </>
-        ) : (
-          <>
-            <label class="btn btn-primary" style="min-height:48px;position:relative">
-              Abgleichen: iCloud-Datei wählen
-              <input type="file" accept=".json,application/json" onChange={(e) => app.onJsonFile(e)} style={fileInput} />
-            </label>
-            <span style="font-size:13px;color:var(--color-neutral-700)">
-              Schritt 1 wählt haushaltsbuch.json aus dem geteilten Ordner und führt sie mit diesem Gerät zusammen. Danach erscheint Schritt 2 zum
-              Zurücksichern. So gehen Buchungen der anderen Person nie verloren.
-            </span>
-            {firstFile && (
-              <button
-                class="btn btn-ghost"
-                style="align-self:flex-start"
-                onClick={() => {
-                  if (
-                    confirm(
-                      "Nur verwenden, wenn es in iCloud noch keine haushaltsbuch.json gibt. Sonst bitte zuerst „Abgleichen“, damit nichts überschrieben wird. Erste Sicherung jetzt anlegen?",
-                    )
-                  )
-                    app.saveFile();
-                }}
-              >
-                Noch keine Datei in iCloud? Erste Sicherung anlegen
-              </button>
-            )}
-          </>
-        )}
-      </section>
+          )}
+        </section>
+      )}
+      {showFile && fileSection}
       <section style="display:flex;flex-direction:column;border-top:1px solid var(--color-text)">
         {moreRows.map((r) => (
           <NavRow key={r.label} label={r.label} value={r.value} onClick={r.go} />
         ))}
+      </section>
+    </main>
+  );
+}
+
+/** Statuszeile des GitHub-Abgleichs. */
+export function ghStatus(gh: GitHubConfig, busy: boolean): string {
+  if (busy) return "Wird abgeglichen …";
+  if (gh.lastErr) return "Abgleich fehlgeschlagen: " + gh.lastErr;
+  return gh.lastSync ? "Mit GitHub abgeglichen " + fmtTime(gh.lastSync) : "GitHub-Abgleich eingerichtet";
+}
+
+/** Einrichtung des Abgleichs über ein privates GitHub-Repo. */
+export function GitHubScreen({ c }: { c: Ctx }) {
+  const { s, app } = c;
+  const gh = s.gh;
+  const dr = s.ghDraft || { repo: gh?.repo || "", path: gh?.path || DEFAULT_PATH, token: gh?.token || "", password: gh?.password || "" };
+  const setDr = (k: keyof typeof dr) => (e: Event) => app.setState({ ghDraft: { ...dr, [k]: val(e) } });
+  const plain = { autoCapitalize: "off", autoCorrect: "off", spellcheck: false } as const;
+  return (
+    <main style="display:flex;flex-direction:column;gap:var(--space-6)">
+      <p style="margin:0;font-size:14px;color:var(--color-neutral-700)">
+        Die App speichert euren Stand verschlüsselt in einem privaten GitHub-Repo und gleicht ihn automatisch ab. GitHub sieht nur unlesbare Daten.
+        Zugangsschlüssel und Passwort bleiben auf diesem Gerät und werden nie mit abgeglichen.
+      </p>
+      {gh && (
+        <section style="display:flex;flex-direction:column;gap:var(--space-2);padding-bottom:var(--space-4);border-bottom:1px solid var(--color-text)">
+          <span style={"font-size:15px;font-weight:" + (gh.lastErr ? 600 : 400)}>{ghStatus(gh, !!s.ghBusy)}</span>
+          <span style="font-size:13px;color:var(--color-neutral-700)">{gh.repo + " · " + gh.path}</span>
+          <div style="display:flex;flex-wrap:wrap;gap:var(--space-2)">
+            <button class="btn btn-primary" onClick={() => app.ghSync(true)} disabled={!!s.ghBusy}>
+              Jetzt abgleichen
+            </button>
+            <button class="btn btn-ghost" onClick={() => app.ghDisconnect()}>
+              Auf diesem Gerät beenden
+            </button>
+          </div>
+        </section>
+      )}
+      <section style="display:flex;flex-direction:column;gap:var(--space-3)">
+        <h2 style="margin:0;font-size:24px">{gh ? "Zugang ändern" : "Einrichten"}</h2>
+        <div class="field">
+          <label>Repo (besitzer/name)</label>
+          <input class="input" value={dr.repo} onInput={setDr("repo")} placeholder="z. B. max/haushaltsbuch-daten" {...plain} />
+        </div>
+        <div class="field">
+          <label>Datei im Repo</label>
+          <input class="input" value={dr.path} onInput={setDr("path")} {...plain} />
+        </div>
+        <div class="field">
+          <label>Zugangsschlüssel (Fine-grained Token)</label>
+          <input class="input" type="password" value={dr.token} onInput={setDr("token")} placeholder="github_pat_…" autoComplete="off" {...plain} />
+        </div>
+        <div class="field">
+          <label>Passwort der Datei</label>
+          <input class="input" type="password" value={dr.password} onInput={setDr("password")} autoComplete="current-password" {...plain} />
+        </div>
+        <div>
+          <button class="btn btn-primary" onClick={() => app.ghConnect({ ...dr, path: dr.path.trim() || DEFAULT_PATH })} disabled={!!s.ghBusy}>
+            {s.ghBusy ? "Wird geprüft …" : gh ? "Speichern und abgleichen" : "Verbinden und abgleichen"}
+          </button>
+        </div>
+        <span style="font-size:13px;color:var(--color-neutral-700)">
+          Die App prüft den Zugang, bevor sie ihn speichert: Datei lesen, entschlüsseln, mit diesem Gerät zusammenführen. Fehlt die Datei im Repo, wird
+          sie angelegt.
+        </span>
+      </section>
+      <section style="display:flex;flex-direction:column;gap:var(--space-2);border-top:1px solid var(--color-divider);padding-top:var(--space-4)">
+        <h2 style="margin:0;font-size:20px">Zugangsschlüssel anlegen</h2>
+        <ol style="margin:0;padding-left:var(--space-6);display:flex;flex-direction:column;gap:var(--space-1);font-size:14px;line-height:1.5">
+          <li>github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.</li>
+          <li>Repository access: „Only select repositories“ und nur das Daten-Repo wählen.</li>
+          <li>Permissions → Repository permissions → Contents: „Read and write“. Sonst nichts.</li>
+          <li>Ablaufdatum setzen, z. B. ein Jahr. Danach hier einen neuen Schlüssel eintragen.</li>
+        </ol>
+        <span style="font-size:13px;color:var(--color-neutral-700)">
+          Geht ein Gerät verloren: den Schlüssel auf github.com widerrufen. Ohne Passwort bleibt die Datei trotzdem unlesbar.
+        </span>
       </section>
     </main>
   );
@@ -376,6 +486,16 @@ export function AssumptionsScreen({ c }: { c: Ctx }) {
 export function HelpScreen() {
   return (
     <main style="display:flex;flex-direction:column;gap:var(--space-3)">
+      <h2 style="margin:0;font-size:22px">Mit GitHub (empfohlen)</h2>
+      <ol style="margin:0;padding-left:var(--space-6);display:flex;flex-direction:column;gap:var(--space-2);line-height:1.55">
+        <li>Die verschlüsselte Datei liegt in eurem privaten GitHub-Repo.</li>
+        <li>
+          Auf jedem Gerät einmal: Mehr → <strong>GitHub-Abgleich</strong> → Repo, Zugangsschlüssel und Passwort eintragen.
+        </li>
+        <li>Danach gleicht die App selbst ab: beim Öffnen und kurz nach jeder Änderung.</li>
+        <li>Als App: in Safari Teilen → „Zum Home-Bildschirm“.</li>
+      </ol>
+      <h2 style="margin:var(--space-3) 0 0;font-size:22px">Ohne GitHub, per iCloud-Datei</h2>
       <ol style="margin:0;padding-left:var(--space-6);display:flex;flex-direction:column;gap:var(--space-2);line-height:1.55">
         <li>Einmalig in iCloud Drive einen Ordner „Haushaltsbuch“ anlegen und für die andere Person freigeben.</li>
         <li>
@@ -385,7 +505,6 @@ export function HelpScreen() {
           Danach <strong>Zurück in iCloud sichern</strong> → „In Dateien sichern“ → Ordner → Ersetzen.
         </li>
         <li>Am Rechner: Datei auf icloud.com herunterladen, abgleichen, die neue Datei wieder hochladen und ersetzen.</li>
-        <li>Als App: in Safari Teilen → „Zum Home-Bildschirm“.</li>
       </ol>
       <p style="margin:0;font-size:14px;color:var(--color-neutral-700)">
         Gelöschte Buchungen bleiben beim Zusammenführen gelöscht. Für Fixkosten, Konten, Budgets und Einkommen gilt der zuletzt geänderte Stand.

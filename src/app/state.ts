@@ -2,6 +2,7 @@
 
 import { TODAY } from "../domain/dates";
 import type { Data } from "../domain/types";
+import type { GitHubConfig } from "../storage/github";
 
 export type Tab = "uebersicht" | "buchungen" | "planung" | "mehr";
 export type View =
@@ -18,7 +19,8 @@ export type View =
   | "ibans"
   | "regeln"
   | "annahmen"
-  | "hilfe";
+  | "hilfe"
+  | "github";
 
 export interface QuickAdd {
   date: string;
@@ -70,6 +72,13 @@ export interface UiState {
   potsOpen?: boolean;
   /** Nach dem Zusammenführen: Datei jetzt zurück in iCloud sichern. */
   syncStep?: "save" | null;
+  /** GitHub-Abgleich dieses Geräts (null = nicht eingerichtet) */
+  gh?: GitHubConfig | null;
+  ghBusy?: boolean;
+  /** Datei-Abgleich trotz GitHub einblenden */
+  showFile?: boolean;
+  /** Eingaben im Einrichtungsformular */
+  ghDraft?: { repo: string; path: string; token: string; password: string };
 }
 
 export interface BankSession {
@@ -96,6 +105,7 @@ export const VIEWS: Record<View, [string, Tab | null]> = {
   regeln: ["Kategorie-Regeln", "mehr"],
   annahmen: ["Annahmen", "mehr"],
   hilfe: ["Gemeinsam nutzen", "mehr"],
+  github: ["GitHub-Abgleich", "mehr"],
 };
 
 export function initialState(data: Data): UiState {

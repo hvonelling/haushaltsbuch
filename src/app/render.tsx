@@ -5,7 +5,7 @@ import { AddDialog } from "../screens/AddDialog";
 import { CalendarScreen, EventDialog } from "../screens/Calendar";
 import { Categories, CategoryDetail } from "../screens/Categories";
 import { FixedScreen, FixLinkDialog } from "../screens/Fixed";
-import { AssumptionsScreen, BankAskDialog, BankScreen, HelpScreen, IbansScreen, ImportScreen, MoreScreen, RulesScreen } from "../screens/More";
+import { AssumptionsScreen, BankAskDialog, BankScreen, GitHubScreen, HelpScreen, IbansScreen, ImportScreen, MoreScreen, RulesScreen } from "../screens/More";
 import { Overview } from "../screens/Overview";
 import { AccountsScreen, IncomeScreen, PeriodsScreen, PlanningScreen } from "../screens/Planning";
 import { PotsScreen } from "../screens/Pots";
@@ -45,6 +45,8 @@ function Body({ c }: { c: Ctx }) {
       return <AssumptionsScreen c={c} />;
     case "hilfe":
       return <HelpScreen />;
+    case "github":
+      return <GitHubScreen c={c} />;
   }
   switch (s.tab) {
     case "uebersicht":
