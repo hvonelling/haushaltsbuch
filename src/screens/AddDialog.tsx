@@ -54,12 +54,13 @@ export function AddDialog({ c }: { c: Ctx }) {
       acct: "Bar/Manuell",
       editedAt: Date.now(),
       ...(qa.pot ? { pot: qa.pot } : {}),
+      ...(qa.note && qa.note.trim() ? { note: qa.note.trim() } : {}),
     };
     if (!t.cat) t.cat = categorize(t, [...d.rules, ...defRules(d)], []);
     app.setState((x) => ({
       data: { ...withCat(x.data, t.cat), tx: [...x.data.tx, t], changedAt: Date.now() },
       addOpen: false,
-      qa: { ...x.qa, payee: "", amount: "", cat: "", pot: "" },
+      qa: { ...x.qa, payee: "", amount: "", cat: "", pot: "", note: "" },
       msg: "Gebucht: " + t.payee + " " + f2(t.amount) + " (" + t.cat + ")",
     }));
   };
@@ -122,6 +123,15 @@ export function AddDialog({ c }: { c: Ctx }) {
         <input class="input" value={qa.payee} onInput={(e) => setQa("payee", val(e))} placeholder="Wofür (optional)" aria-label="Wofür" />
         <input class="input" type="date" value={qa.date} onInput={(e) => setQa("date", val(e))} aria-label="Datum" />
       </div>
+      <textarea
+        class="input"
+        rows={2}
+        value={qa.note || ""}
+        onInput={(e) => setQa("note", val(e))}
+        placeholder="Notiz (optional), z. B. Geburtstagsgeschenk Oma"
+        aria-label="Notiz"
+        style="min-height:44px;resize:vertical;font-family:inherit"
+      ></textarea>
       <button class="btn btn-primary btn-block" onClick={add} style="min-height:52px;font-size:18px">
         Buchen
       </button>

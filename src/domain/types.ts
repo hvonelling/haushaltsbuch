@@ -22,6 +22,8 @@ export interface Tx {
   oneoff?: boolean;
   oneoffManual?: boolean;
   fixManual?: boolean;
+  /** Ausdrücklich diesem Fixkosten-Eintrag zugeordnet (nur diese Buchung). */
+  fixId?: string;
   pot?: string; // "" = ausdrücklich kein Topf, undefined = automatisch
   note?: string;
   evId?: string;
@@ -145,6 +147,8 @@ export interface Data {
   keepRest?: boolean;
   bank?: BankSettings;
   bankAsk?: BankAsk[];
+  /** Abgelehnte Vorschläge "Buchung gehört zu Fixkosten": "<Buchung>><Eintrag>" */
+  fixNo?: string[];
   /** Zeitpunkt des letzten Abgleichs mit der iCloud-Datei (neu im Neubau). */
   syncedAt?: number;
 }

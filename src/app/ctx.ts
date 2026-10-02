@@ -17,6 +17,8 @@ export interface Ctx {
   ALLC: string[];
   EXPC: string[];
   months: string[];
+  /** Monate zum Blättern (mit Buchungen plus laufender Monat) */
+  navMonths: string[];
   cm: string[];
   sel: string;
   noInc: boolean;
@@ -54,7 +56,10 @@ export function buildCtx(app: App): Ctx {
     EXPC = ALLC.filter((c) => !INCATS.includes(c) && c !== TRANSFER);
   const months = monthsOf(d);
   const noInc = !d.persons.some((p) => +(p.netto as number) > 0);
-  const sel = s.month || months[months.length - 1] || TODAY_YM();
+  // Standard ist der laufende Monat, auch wenn er noch keine Buchungen hat.
+  const sel = s.month || TODAY_YM();
+  // Monate zum Blättern: alle mit Buchungen plus der laufende Monat.
+  const navMonths = months.includes(TODAY_YM()) ? months : [...months, TODAY_YM()].sort();
   const SM: Record<string, MonthStats> = {};
   months.forEach((m) => (SM[m] = monthStats(d, m)));
   const stOf = (m: string) => SM[m] || monthStats(d, m);
@@ -76,7 +81,7 @@ export function buildCtx(app: App): Ctx {
   const st = stOf(sel);
   const cm = months.filter((m) => m < TODAY_YM());
   const pots = d.pots || [],
-    potName = (id: string | null) => (pots.find((p) => p.id === id) || ({} as Pot)).name || "Topf",
+    potName = (id: string | null) => (pots.find((p) => p.id === id) || ({} as Pot)).name || "Spartopf",
     potOpts = pots.map((p) => ({ v: p.id, l: p.name || "Ohne Name" }));
   const firstM = months[0] || TODAY_YM(),
     medMs: string[] = [];
@@ -101,6 +106,7 @@ export function buildCtx(app: App): Ctx {
     ALLC,
     EXPC,
     months,
+    navMonths,
     cm,
     sel,
     noInc,

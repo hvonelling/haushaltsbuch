@@ -6,7 +6,9 @@ import { Component } from "preact";
 import { BANK_SINCE, CATS, CUTOFF_DAY } from "../domain/constants";
 import { decode } from "../domain/csv";
 import { bankAnswer, bankMerge, importCsvTexts, mergeBackup, parseBackup, type BankResponse } from "../domain/data";
-import { TODAY_YM } from "../domain/dates";
+import { setNow, TODAY, TODAY_YM } from "../domain/dates";
+import { f2, N } from "../domain/format";
+import { uiPrefs } from "../storage/prefs";
 import { uid } from "../domain/format";
 import { adoptSug, fixEntry, total } from "../domain/ledger";
 import { normKey, recat } from "../domain/rules";
@@ -47,7 +49,7 @@ export class App extends Component<object, UiState> {
 
   constructor() {
     super();
-    this.state = { ...initialState(localStore.load()), gh: githubConfig.load() };
+    this.state = { ...initialState(localStore.load()), gh: githubConfig.load(), ...uiPrefs.load() };
   }
 
   set(p: Patch) {
@@ -69,10 +71,17 @@ export class App extends Component<object, UiState> {
   }
 
   private onVisible = () => {
-    if (document.visibilityState === "visible") this.ghSync();
+    if (document.visibilityState !== "visible") return;
+    // Die App bleibt oft tagelang offen: "heute" neu bestimmen, damit ein neuer Monat ankommt.
+    const before = TODAY();
+    setNow(new Date());
+    if (TODAY() !== before) this.setState((s) => ({ month: s.month && before.slice(0, 7) !== TODAY_YM() ? null : s.month }));
+    this.ghSync();
   };
 
   componentDidUpdate(_: object, ps: UiState) {
+    if (this.state.potsOpen !== ps.potsOpen || this.state.soonOpen !== ps.soonOpen)
+      uiPrefs.save({ potsOpen: !!this.state.potsOpen, soonOpen: !!this.state.soonOpen });
     if (this.state.data !== ps.data) {
       this.persist(this.state.data);
       // Eigene Änderung: kurz danach mit GitHub abgleichen (mehrere Änderungen werden gebündelt).
@@ -102,7 +111,7 @@ export class App extends Component<object, UiState> {
     });
   }
 
-  /** Ein Feld eines Listeneintrags ändern (Fixkosten, Konten, Töpfe …). */
+  /** Ein Feld eines Listeneintrags ändern (Fixkosten, Konten, Spartöpfe …). */
   upd(list: ListName, id: string, field: string, val: unknown) {
     this.mut((d) => {
       const arr = (d[list] || []) as unknown as { id: string }[];
@@ -320,6 +329,88 @@ export class App extends Component<object, UiState> {
       };
     }, mode.endsWith("List"));
     this.setState({ fixAsk: null });
+  }
+
+  /**
+   * Buchung einem Fixkosten-Eintrag zuordnen.
+   * target: Eintrags-ID, "" = keine Fixkosten, "__new" = neuen Eintrag aus der Buchung anlegen.
+   * all: Zuordnung gilt für alle Buchungen dieses Empfängers (sonst nur für diese Buchung).
+   */
+  assignFix(sx: Tx, target: string, all: boolean) {
+    const d = this.state.data;
+    if (target === "__new") {
+      this.setFix(sx, "onList");
+      return;
+    }
+    if (target === "") {
+      this.mut((dd) => {
+        // Würde die Buchung über den Empfänger weiter als Fixkosten zählen, ausdrücklich ausnehmen.
+        const still = fixEntry({ ...sx, fixId: undefined }, dd);
+        return {
+          ...dd,
+          tx: dd.tx.map((x) => (x.id === sx.id ? { ...x, fixId: undefined, fixManual: still ? false : undefined, editedAt: Date.now() } : x)),
+        };
+      });
+      return;
+    }
+    const f = d.fixed.find((x) => x.id === target);
+    if (!f) return;
+    const nk = normKey(sx.payee || "");
+    const forPayee = all && nk.length >= 3;
+    let removeOther: string | null = null,
+      otherKey = "";
+    if (forPayee) {
+      const other = fixEntry({ ...sx, fixId: undefined }, d);
+      if (other && other.id !== f.id) {
+        if (
+          !confirm(
+            "Buchungen von „" + (sx.payee || "") + "“ gehören bisher zu „" + (other.name || "Fixkosten") + "“. Diesen Eintrag entfernen und alles „" + (f.name || "Fixkosten") + "“ zuordnen?",
+          )
+        )
+          return;
+        removeOther = other.id;
+        otherKey = other.key || normKey(other.name || "");
+      }
+    }
+    const actual = Math.round(-sx.amount * 100) / 100,
+      planned = N(f.amount) || 0;
+    let newAmount: number | null = null;
+    if (!(planned > 0)) newAmount = actual;
+    else if (
+      Math.abs(actual - planned) > 0.005 &&
+      confirm("Geplanten Betrag von „" + (f.name || "Fixkosten") + "“ von " + f2(planned) + " auf " + f2(actual) + " anpassen?")
+    )
+      newAmount = actual;
+    const early = +sx.date.slice(8, 10) >= (+(d.incomeCutoff as number) || CUTOFF_DAY);
+    this.mut(
+      (dd) => ({
+        ...dd,
+        fixed: dd.fixed
+          .filter((x) => x.id !== removeOther)
+          .map((x) =>
+            x.id === f.id
+              ? {
+                  ...x,
+                  ...(forPayee ? { key: nk + "|" + (sx.iban || ""), early: x.early ?? early } : {}),
+                  ...(newAmount != null ? { amount: newAmount } : {}),
+                }
+              : x,
+          ),
+        dismissedSug: removeOther ? [...new Set([...(dd.dismissedSug || []), otherKey])] : dd.dismissedSug,
+        // Die Buchung selbst wird immer ausdrücklich zugeordnet.
+        tx: dd.tx.map((x) => (x.id === sx.id ? { ...x, fixId: f.id, fixManual: undefined, editedAt: Date.now() } : x)),
+      }),
+      true,
+    );
+    this.setState({
+      msg:
+        "„" + (sx.payee || "Buchung") + "“ zählt als „" + (f.name || "Fixkosten") + "“" + (forPayee ? " – künftig alle Buchungen dieses Empfängers." : " (nur diese Buchung)."),
+    });
+  }
+
+  /** Vorschlag "Buchung gehört zu Fixkosten" ablehnen und nicht wieder anbieten. */
+  rejectFix(txId: string, fixedId: string) {
+    this.mut((dd) => ({ ...dd, fixNo: [...new Set([...(dd.fixNo || []), txId + ">" + fixedId])] }));
   }
 
   // ------------------------------------------------------------ Import und Abgleich
@@ -566,7 +657,7 @@ export class App extends Component<object, UiState> {
     }, true);
   }
 
-  // ------------------------------------------------------------ Töpfe
+  // ------------------------------------------------------------ Spartöpfe
 
   setTxPot(id: string, v: string) {
     const pots = this.state.data.pots || [];
@@ -574,7 +665,7 @@ export class App extends Component<object, UiState> {
       np: { id: string; name: string; cat: string } | null = null;
     if (v === "__new") {
       const n = askName(
-        "Name des neuen Topfs",
+        "Name des neuen Spartopfs",
         pots.map((p) => p.name),
       );
       if (!n) {

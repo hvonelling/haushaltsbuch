@@ -1,4 +1,4 @@
-// Töpfe: Sparbücher mit Sparrate, Sparziel und automatischer Zuordnung.
+// Spartöpfe: Sparbücher mit Sparrate, Sparziel und automatischer Zuordnung.
 
 import { TRANSFER } from "../domain/constants";
 import { addM, dLabel, mdiff, TODAY, TODAY_YM, ymLong } from "../domain/dates";
@@ -15,7 +15,7 @@ export function potsDueRows(c: Ctx) {
     .filter((p) => N(p.rate) > 0 && !(p.skip || []).includes(ym) && potDepIn(p, d, ym) < 0.5)
     .map((p) => {
       const rate = N(p.rate),
-        nm = p.name || "Topf";
+        nm = p.name || "Spartopf";
       const cand = d.tx.filter(
         (t) => t.date.startsWith(ym) && t.cat === TRANSFER && t.amount < 0 && !potOf(t, d) && Math.abs(-t.amount - rate) < 1,
       )[0];
@@ -66,7 +66,7 @@ export function PotsScreen({ c }: { c: Ctx }) {
   return (
     <main style="display:flex;flex-direction:column;gap:var(--space-6)">
       <p style="margin:0;font-size:14px;color:var(--color-neutral-700)">
-        Jeder Topf ist ein Sparbuch. Überweisungen aufs Sparkonto sind Einzahlungen und verbrauchen Sparpotenzial. Ausgaben, die ihr einem Topf
+        Jeder Spartopf ist ein Sparbuch. Überweisungen aufs Sparkonto sind Einzahlungen und verbrauchen Sparpotenzial. Ausgaben, die ihr einem Spartopf
         zuordnet („Bezahlt aus“), sind Entnahmen und zählen nicht zu den Monatsausgaben.
       </p>
       {dueRows.length > 0 && (
@@ -207,7 +207,7 @@ export function PotsScreen({ c }: { c: Ctx }) {
                   <button
                     class="btn btn-ghost"
                     onClick={() => {
-                      if (!confirm("Topf „" + (p.name || "") + "“ entfernen? Seine Buchungen zählen dann wieder zu den Monatsausgaben.")) return;
+                      if (!confirm("Spartopf „" + (p.name || "") + "“ entfernen? Seine Buchungen zählen dann wieder zu den Monatsausgaben.")) return;
                       app.mut(
                         (dd) => ({
                           ...dd,
@@ -218,7 +218,7 @@ export function PotsScreen({ c }: { c: Ctx }) {
                       );
                     }}
                   >
-                    Topf entfernen
+                    Spartopf entfernen
                   </button>
                 </div>
               </div>
@@ -236,7 +236,7 @@ export function PotsScreen({ c }: { c: Ctx }) {
             app.setState({ potEdit: id });
           }}
         >
-          Topf anlegen
+          Spartopf anlegen
         </button>
       </div>
     </main>

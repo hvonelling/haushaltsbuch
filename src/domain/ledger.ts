@@ -1,4 +1,4 @@
-// Kernrechnungen: Fixkosten, Töpfe, Einkommen, Monatszuordnung und Monatsauswertung.
+// Kernrechnungen: Fixkosten, Spartöpfe, Einkommen, Monatszuordnung und Monatsauswertung.
 // Diese Funktionen hängen voneinander ab und liegen deshalb in einem Modul.
 
 import { ADD_TYPES, CUTOFF_DAY, INCATS, NOSUG, TRANSFER } from "./constants";
@@ -148,6 +148,11 @@ function fixKey(f: Fixed): { nk: string; iban: string } {
 /** Fixkosten-Eintrag, zu dem eine Ausgabe gehört (über Empfänger und IBAN). */
 export function fixEntry(t: Tx, d: Data): Fixed | null {
   if (t.amount >= 0 || t.cat === TRANSFER) return null;
+  if (t.fixId) {
+    // ausdrückliche Zuordnung dieser einen Buchung
+    const f = d.fixed.find((x) => x.id === t.fixId);
+    if (f) return f;
+  }
   const nk = normKey(t.payee || "");
   if (nk.length < 3) return null;
   return (
@@ -175,8 +180,14 @@ function fixPick(d: Data): Set<string> {
       set.add(t.id);
       continue;
     }
-    const k = f.id + "|" + ymOf(t, d),
-      dv = Math.abs(-t.amount - N(f.amount));
+    const k = f.id + "|" + ymOf(t, d);
+    if (t.fixId === f.id) {
+      // ausdrücklich zugeordnet: zählt immer und geht im Monat vor
+      set.add(t.id);
+      best[k] = { id: t.id, dv: -1 };
+      continue;
+    }
+    const dv = Math.abs(-t.amount - N(f.amount));
     if (!best[k] || dv < best[k].dv) best[k] = { id: t.id, dv };
   }
   Object.values(best).forEach((b) => set.add(b.id));
@@ -190,9 +201,9 @@ export function isFix(t: Tx, d: Data): boolean {
   return fixPick(d).has(t.id);
 }
 
-// ---------------------------------------------------------------- Töpfe
+// ---------------------------------------------------------------- Spartöpfe
 
-/** Topf einer Buchung: ausdrücklich gesetzt, über Sparkonto oder über die Kategorie. */
+/** Spartopf einer Buchung: ausdrücklich gesetzt, über Sparkonto oder über die Kategorie. */
 export function potOf(t: Tx, d: Data): string | null {
   if (t.pot != null) return t.pot || null;
   const ps = d.pots || [];
@@ -445,17 +456,97 @@ export function budTotal(d: Data): number {
   );
 }
 
+const entryKey = (f: Fixed) => f.id || f.key || f.name;
+
+// Je Fixkosten-Eintrag: in welchen Monaten wurde eine Buchung als diese Fixkosten gezählt?
+const _fb = new WeakMap<Tx[], { fixed: Fixed[]; map: Record<string, Record<string, string>> }>();
+/** Monat → Buchungsdatum je Fixkosten-Eintrag. */
+export function fixBooked(d: Data): Record<string, Record<string, string>> {
+  const c = _fb.get(d.tx);
+  if (c && c.fixed === d.fixed) return c.map;
+  const map: Record<string, Record<string, string>> = {};
+  d.tx.forEach((t) => {
+    if (t.oneoff || potOf(t, d) || !isFix(t, d)) return;
+    const f = fixEntry(t, d);
+    if (f) (map[entryKey(f)] = map[entryKey(f)] || {})[ymOf(t, d)] = t.date;
+  });
+  _fb.set(d.tx, { fixed: d.fixed, map });
+  return map;
+}
+
+/**
+ * Datum der Abbuchung, falls der Eintrag für diesen Monat bezahlt ist.
+ * Seltene Fixkosten (viertel-, halb-, jährlich) gelten auch als bezahlt,
+ * wenn die Abbuchung einen Monat früher oder später kam.
+ */
+export function bookedOn(f: Fixed, ym: string, booked: Record<string, Record<string, string>>): string | null {
+  const m = booked[entryKey(f)];
+  if (!m) return null;
+  if (m[ym]) return m[ym];
+  if ((N(f.interval) || 1) >= 2) return m[addM(ym, -1)] || m[addM(ym, 1)] || null;
+  return null;
+}
+const isBooked = (f: Fixed, ym: string, booked: Record<string, Record<string, string>>) => !!bookedOn(f, ym, booked);
+
+export interface FixMatch {
+  f: Fixed;
+  t: Tx;
+  ym: string;
+}
+
+/**
+ * Vorschläge "Diese Buchung könnte zu offenen Fixkosten gehören":
+ * Eintrag im letzten oder laufenden Monat fällig und noch nicht abgebucht,
+ * dazu eine nicht zugeordnete Ausgabe mit höchstens 10 % Abweichung.
+ */
+export function fixSuggestions(d: Data): FixMatch[] {
+  const no = new Set(d.fixNo || []);
+  const booked = fixBooked(d);
+  const out: FixMatch[] = [];
+  const used = new Set<string>();
+  const cur = TODAY_YM(),
+    lo = addM(cur, -2),
+    hi = addM(cur, 1);
+  // nur Ausgaben im fraglichen Zeitraum, die noch zu keinem Eintrag gehören
+  const cands = d.tx.filter((t) => {
+    const m = t.date.slice(0, 7);
+    return (
+      m >= lo && m <= hi && t.amount < 0 && t.cat !== TRANSFER && t.fixManual == null && !t.fixId && !t.oneoff && !potOf(t, d) && !fixEntry(t, d)
+    );
+  });
+  if (!cands.length) return out;
+  for (const ym of [addM(cur, -1), cur]) {
+    for (const f of d.fixed) {
+      const amt = N(f.amount);
+      if (f.external || !(amt > 0) || !fixedDue(f, ym) || isBooked(f, ym, booked)) continue;
+      const rare = (N(f.interval) || 1) >= 2;
+      let best: { t: Tx; dv: number } | null = null;
+      for (const t of cands) {
+        if (used.has(t.id) || no.has(t.id + ">" + f.id)) continue;
+        const m = ymOf(t, d);
+        if (!(m === ym || (rare && (m === addM(ym, -1) || m === addM(ym, 1))))) continue;
+        // Nur Buchungen derselben Kategorie oder noch nicht einsortierte ("Sonstiges"),
+        // damit z. B. ein Restaurantbesuch nicht als Gas-Abschlag vorgeschlagen wird.
+        if (t.cat !== f.cat && t.cat !== "Sonstiges") continue;
+        const dv = Math.abs(-t.amount - amt);
+        if (dv > amt * 0.1) continue;
+        if (!best || dv < best.dv) best = { t, dv };
+      }
+      if (best) {
+        used.add(best.t.id);
+        out.push({ f, t: best.t, ym });
+      }
+    }
+  }
+  return out;
+}
+
 /** Noch offene (nicht abgebuchte) Fixkosten und Termine eines Monats. */
 export function fixOpenIn(d: Data, ym: string): number {
-  const bk: Record<string, number> = {};
+  const booked = fixBooked(d);
   let fixOpen = 0;
-  d.tx.forEach((t) => {
-    if (ymOf(t, d) !== ym || t.oneoff || potOf(t, d) || !isFix(t, d)) return;
-    const f = fixEntry(t, d);
-    if (f) bk[f.id || f.key || f.name] = 1;
-  });
   d.fixed.forEach((f) => {
-    if (fixedDue(f, ym) && !bk[f.id || f.key || f.name]) fixOpen += N(f.amount) || 0;
+    if (fixedDue(f, ym) && !isBooked(f, ym, booked)) fixOpen += N(f.amount) || 0;
   });
   (d.events || []).forEach((e) => {
     if (e.dir !== "ein" && evDue(e, ym) && !(e.done || {})[ym]) fixOpen += N(e.amount) || 0;

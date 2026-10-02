@@ -277,3 +277,5 @@ a{color:var(--color-accent-700)}
 a:hover{color:var(--color-accent-600)}
 select.input{appearance:auto}
 .fab:hover{background:var(--color-accent-100) !important}
+/* Grün und Rot gibt es nur beim Sparpotenzial: Plus grün, Minus rot. */
+:root{--color-pos:#2c7a4b;--color-neg:#b3362b}

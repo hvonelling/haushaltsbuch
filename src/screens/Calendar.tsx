@@ -3,7 +3,7 @@
 import { IVL, TRANSFER } from "../domain/constants";
 import { addM, clampD, dLabel, MONTHS, TODAY, TODAY_YM, ymLong } from "../domain/dates";
 import { f0, f2, N, pNum, uid } from "../domain/format";
-import { evDue, fixedDue, fixEntry, ymOf } from "../domain/ledger";
+import { bookedOn, evDue, fixBooked, fixedDue, fixEntry } from "../domain/ledger";
 import type { CalEvent } from "../domain/types";
 import type { Ctx } from "../app/ctx";
 import { PickRow, Sheet, SheetHead, val } from "../ui/parts";
@@ -39,17 +39,16 @@ export type OccRow = {
 export function calendarVM(c: Ctx) {
   const { d, app } = c;
   const evs = d.events || [],
-    fixDay: Record<string, string> = {},
-    fixPaid: Record<string, Record<string, string>> = {};
+    fixDay: Record<string, string> = {};
+  // üblicher Abbuchungstag je Eintrag (aus der letzten passenden Buchung)
   d.tx.forEach((t) => {
     if (t.amount >= 0 || t.cat === TRANSFER) return;
     const f = fixEntry(t, d);
     if (!f) return;
-    const k = f.id || f.key || f.name,
-      ym = ymOf(t, d);
-    (fixPaid[k] = fixPaid[k] || {})[ym] = t.date;
+    const k = f.id || f.key || f.name;
     if (!fixDay[k] || t.date > fixDay[k]) fixDay[k] = t.date;
   });
+  const booked = fixBooked(d);
   const occ: Occ[] = [];
   for (let i = -2; i < 12; i++) {
     const ym = addM(TODAY_YM(), i);
@@ -57,7 +56,8 @@ export function calendarVM(c: Ctx) {
       d.fixed.forEach((f) => {
         if ((N(f.interval) || 1) < 2 || !fixedDue(f, ym)) return;
         const k = f.id || (f.key as string) || f.name,
-          pd = (fixPaid[k] || {})[ym],
+          // bezahlt, auch wenn die Abbuchung einen Monat früher oder später kam
+          pd = bookedOn(f, ym, booked) || undefined,
           day = fixDay[k] ? +fixDay[k].slice(8, 10) : null;
         occ.push({
           ym,
@@ -89,7 +89,6 @@ export function calendarVM(c: Ctx) {
     });
   }
   occ.sort((a, b) => ((a.date || a.ym + "-99") < (b.date || b.ym + "-99") ? -1 : 1));
-  const lim30 = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
   const occRow = (o: Occ): OccRow => {
     const over = !o.paid && (o.date ? o.date < TODAY() : o.ym < TODAY_YM());
     let sub: string;
@@ -134,13 +133,31 @@ export function calendarVM(c: Ctx) {
         items: it.map(occRow),
       };
     });
-  const soonO = occ.filter((o) => !o.paid && (o.date ? o.date <= lim30 : o.ym === TODAY_YM()));
+  // Übersicht: offene Termine bis einschließlich übernächsten Monat (plus Überfälliges), nach Monat gruppiert
+  const lastYm = addM(TODAY_YM(), 2);
+  const soonO = occ.filter((o) => !o.paid && o.ym <= lastYm);
+  const soonMap: Record<string, Occ[]> = {};
+  soonO.forEach((o) => (soonMap[o.ym] = soonMap[o.ym] || []).push(o));
+  const sumOf = (it: Occ[]) => {
+    const out = it.filter((o) => !o.ein).reduce((a, o) => a + o.amt, 0),
+      inn = it.filter((o) => o.ein).reduce((a, o) => a + o.amt, 0);
+    return [out ? "−" + f0(out) : "", inn ? "+" + f0(inn) : ""].filter(Boolean).join(" · ");
+  };
   const soon = {
     has: soonO.length > 0,
-    items: soonO.slice(0, 6).map((o) => ({
-      ...occRow(o),
-      dateL: o.date ? +o.date.slice(8, 10) + "." + o.date.slice(5, 7) + "." : MONTHS[+o.ym.slice(5) - 1],
-    })),
+    count: soonO.length,
+    sumL: sumOf(soonO),
+    months: Object.keys(soonMap)
+      .sort()
+      .map((ym) => ({
+        ym,
+        label: ymLong(ym),
+        sumL: sumOf(soonMap[ym]),
+        items: soonMap[ym].map((o) => ({
+          ...occRow(o),
+          dateL: o.date ? +o.date.slice(8, 10) + "." + o.date.slice(5, 7) + "." : MONTHS[+o.ym.slice(5) - 1],
+        })),
+      })),
   };
   const linked = new Set<string>();
   evs.forEach((e) => Object.values(e.done || {}).forEach((v) => v && v.tx && linked.add(v.tx)));

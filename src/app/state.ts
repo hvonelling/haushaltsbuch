@@ -29,6 +29,7 @@ export interface QuickAdd {
   cat: string;
   pot: string;
   dir: "aus" | "ein";
+  note: string;
 }
 
 export interface UiState {
@@ -70,6 +71,12 @@ export interface UiState {
   evEdit?: string | null;
   potEdit?: string | null;
   potsOpen?: boolean;
+  /** Block "Demnächst fällig" auf der Übersicht aufgeklappt */
+  soonOpen?: boolean;
+  /** Dialog "Buchung passt zu offenen Fixkosten" offen */
+  fixSugOpen?: boolean;
+  /** Fixkosten-Zuordnung für alle Buchungen des Empfängers (Standard: ja) */
+  fixAll?: boolean;
   /** Nach dem Zusammenführen: Datei jetzt zurück in iCloud sichern. */
   syncStep?: "save" | null;
   /** GitHub-Abgleich dieses Geräts (null = nicht eingerichtet) */
@@ -92,7 +99,7 @@ export const TABL: Record<Tab, string> = { uebersicht: "Übersicht", buchungen: 
 
 export const VIEWS: Record<View, [string, Tab | null]> = {
   cat: ["Kategorie", null],
-  toepfe: ["Töpfe", "mehr"],
+  toepfe: ["Spartöpfe", "mehr"],
   kategorien: ["Kategorien & Budgets", "uebersicht"],
   einkommen: ["Einkommen", "planung"],
   zeitraeume: ["Zeiträume & Szenarien", "planung"],
@@ -130,7 +137,7 @@ export function initialState(data: Data): UiState {
     txSel: null,
     allCats: false,
     ibanDraft: "",
-    qa: { date: TODAY(), payee: "", amount: "", cat: "", pot: "", dir: "aus" },
+    qa: { date: TODAY(), payee: "", amount: "", cat: "", pot: "", dir: "aus", note: "" },
     data,
   };
 }

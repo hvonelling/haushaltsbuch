@@ -114,6 +114,7 @@ export function mergeBackup(d: Data, inc: Data): MergeResult {
     settingsAt: Math.max(d.settingsAt || 0, inc.settingsAt || 0),
     ownIbans: [...new Set([...(d.ownIbans || []), ...(inc.ownIbans || [])])],
     dismissedSug: [...new Set([...(d.dismissedSug || []), ...(inc.dismissedSug || [])])],
+    fixNo: [...new Set([...(d.fixNo || []), ...(inc.fixNo || [])])],
     oneoffLimit: base.oneoffLimit || ONEOFF_LIMIT,
     rules,
     deleted,

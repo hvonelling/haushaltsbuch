@@ -27,7 +27,7 @@ export function MoreScreen({ c }: { c: Ctx }) {
   const dueN = potsDueRows(c).length;
   const moreRows = [
     { label: "Kategorien & Budgets", value: Object.keys(budgets).length + " Budgets", go: goView.kategorien },
-    { label: "Töpfe", value: pots.length + (pots.length === 1 ? " Topf" : " Töpfe") + (dueN ? " · " + dueN + " Sparrate offen" : ""), go: goView.toepfe },
+    { label: "Spartöpfe", value: pots.length + (pots.length === 1 ? " Spartopf" : " Spartöpfe") + (dueN ? " · " + dueN + " Sparrate offen" : ""), go: goView.toepfe },
     { label: "GitHub-Abgleich", value: s.gh ? (s.gh.lastErr ? "Fehler" : "aktiv") : "nicht eingerichtet", go: goView.github },
     { label: "Bankimport", value: "DKB · Sparkasse", go: goView.import },
     ...(BANK_ENABLED
@@ -544,7 +544,7 @@ export function BankAskDialog({ c }: { c: Ctx }) {
         </span>
       </div>
       <p style="margin:0;font-size:14px;color:var(--color-neutral-700)">
-        Bei „Ja“ übernimmt die Bankbuchung Kategorie, Topf und Notiz, der manuelle Eintrag wird entfernt.
+        Bei „Ja“ übernimmt die Bankbuchung Kategorie, Spartopf und Notiz, der manuelle Eintrag wird entfernt.
       </p>
       <div style="display:flex;flex-wrap:wrap;gap:var(--space-2)">
         <button class="btn btn-primary" onClick={() => app.bankAnswer(a, true)}>

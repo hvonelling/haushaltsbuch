@@ -4,7 +4,7 @@ import { TODAY } from "../domain/dates";
 import { AddDialog } from "../screens/AddDialog";
 import { CalendarScreen, EventDialog } from "../screens/Calendar";
 import { Categories, CategoryDetail } from "../screens/Categories";
-import { FixedScreen, FixLinkDialog } from "../screens/Fixed";
+import { FixedScreen, FixLinkDialog, FixSuggestDialog } from "../screens/Fixed";
 import { AssumptionsScreen, BankAskDialog, BankScreen, GitHubScreen, HelpScreen, IbansScreen, ImportScreen, MoreScreen, RulesScreen } from "../screens/More";
 import { Overview } from "../screens/Overview";
 import { AccountsScreen, IncomeScreen, PeriodsScreen, PlanningScreen } from "../screens/Planning";
@@ -172,6 +172,7 @@ export function renderApp(app: App) {
       {!!s.evAsk && <EventDialog c={c} />}
       {!!s.askOpen && <BankAskDialog c={c} />}
       {!!s.fixLink && <FixLinkDialog c={c} />}
+      {!!s.fixSugOpen && <FixSuggestDialog c={c} />}
       {!!s.txSel && <TxDialog c={c} />}
     </>
   );

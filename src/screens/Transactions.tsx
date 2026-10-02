@@ -3,7 +3,7 @@
 import { CATS, INCATS, TRANSFER } from "../domain/constants";
 import { dLabel, ymLabel, TODAY_YM } from "../domain/dates";
 import { f2, N, uid } from "../domain/format";
-import { fixEntry, isFix, potOf } from "../domain/ledger";
+import { fixEntry, fixSuggestions, isFix, potOf } from "../domain/ledger";
 import { normKey, recat } from "../domain/rules";
 import type { Data, Tx } from "../domain/types";
 import { askName, withCat } from "../app/App";
@@ -37,7 +37,7 @@ export function transactionsVM(c: Ctx) {
   const bulk = {
     show: bIds.length > 0 && !s.selMode,
     text: bIds.length + " gefilterte Buchungen in „" + potName(bPot) + "“. Mit Suche, Monat oder Kategorie eingrenzen.",
-    label: "Alle " + bIds.length + " aus dem Topf nehmen",
+    label: "Alle " + bIds.length + " aus dem Spartopf nehmen",
     run: () => {
       if (
         !confirm(bIds.length + " Buchungen aus „" + potName(bPot) + "“ nehmen? Sie zählen dann wieder zu Einnahmen, Ausgaben bzw. Umbuchungen.")
@@ -118,12 +118,12 @@ export function transactionsVM(c: Ctx) {
       const v = val(e);
       if (!v || !nSel) return;
       if (v === "__none") {
-        applyPot("", "dem Haushaltsgeld zugeordnet (kein Topf).");
+        applyPot("", "dem Haushaltsgeld zugeordnet (kein Spartopf).");
         return;
       }
       if (v === "__new") {
         const n = askName(
-          "Name des neuen Topfs",
+          "Name des neuen Spartopfs",
           pots.map((p) => p.name),
         );
         if (!n) {
@@ -145,7 +145,7 @@ export function transactionsVM(c: Ctx) {
           }),
           true,
         );
-        app.setState({ selIds: [], msg: nSel + (nSel === 1 ? " Buchung" : " Buchungen") + " in neuen Topf „" + n + "“ verschoben." });
+        app.setState({ selIds: [], msg: nSel + (nSel === 1 ? " Buchung" : " Buchungen") + " in neuen Spartopf „" + n + "“ verschoben." });
         return;
       }
       applyPot(v, "in „" + potName(v) + "“ verschoben.");
@@ -248,7 +248,7 @@ export function Transactions({ c }: { c: Ctx }) {
             </select>
           </div>
           <div class="field">
-            <label>Topf</label>
+            <label>Spartopf</label>
             <select class="input" value={s.fPot} onChange={setF("fPot")}>
               <option value="alle">Alle</option>
               <option value="keiner">Haushaltsgeld</option>
@@ -282,21 +282,21 @@ export function Transactions({ c }: { c: Ctx }) {
             ))}
             <option value="__new">Neue Kategorie …</option>
           </select>
-          <select class="input" value="" onChange={v.sel.movePot} disabled={v.sel.none} aria-label="Topf zuordnen" style="width:auto;min-height:40px">
-            <option value="">Topf …</option>
-            <option value="__none">Kein Topf (Haushaltsgeld)</option>
+          <select class="input" value="" onChange={v.sel.movePot} disabled={v.sel.none} aria-label="Spartopf zuordnen" style="width:auto;min-height:40px">
+            <option value="">Spartopf …</option>
+            <option value="__none">Kein Spartopf (Haushaltsgeld)</option>
             {potOpts.map((o) => (
               <option key={o.v} value={o.v}>
                 {o.l}
               </option>
             ))}
-            <option value="__new">Neuer Topf …</option>
+            <option value="__new">Neuer Spartopf …</option>
           </select>
         </div>
       )}
       {v.noBudHint && (
         <p style="margin:0;font-size:13px;color:var(--color-neutral-700)">
-          Hier erscheinen Ausgaben in Kategorien ohne Budget. Eine Buchung verschwindet, sobald sie einer Kategorie mit Budget, einem Topf oder den
+          Hier erscheinen Ausgaben in Kategorien ohne Budget. Eine Buchung verschwindet, sobald sie einer Kategorie mit Budget, einem Spartopf oder den
           Fixkosten zugeordnet ist.
         </p>
       )}
@@ -372,15 +372,19 @@ export function TxDialog({ c }: { c: Ctx }) {
       nd.tx = recat(nd);
       return nd;
     });
-  const toggleFix = () => {
-    if (fxOn) {
-      if (fe && sx.fixManual == null) app.setState({ fixAsk: "off" });
-      else app.setFix(sx, "clear");
-    } else {
-      if (fe) app.setFix(sx, "clear");
-      else app.setState({ fixAsk: "on" });
-    }
-  };
+  // Fixkosten-Zuordnung: Liste statt Häkchen
+  const payeeKey = normKey(sx.payee || "");
+  const canAll = payeeKey.length >= 3;
+  const fixAll = s.fixAll !== false;
+  const fixVal = fxOn ? (fe ? fe.id : "__manual") : "";
+  const sug = fxOn ? undefined : fixSuggestions(d).find((m) => m.t.id === sx.id);
+  const setFixSel = (e: Event) => app.assignFix(sx, val(e), fixAll);
+  const fixInfo = !fxOn
+    ? ""
+    : !fe
+      ? "Als Fixkosten markiert, ohne Eintrag in der Liste."
+      : (sx.fixId === fe.id ? "Dieser Buchung ausdrücklich zugeordnet" : "Über den Empfänger zugeordnet") +
+        (N(fe.amount) > 0 ? " · geplant " + f2(-N(fe.amount)) : "");
   const setNote = (e: Event) => {
     const v = val(e);
     app.mut((dd) => ({ ...dd, tx: dd.tx.map((x) => (x.id === sx.id ? { ...x, note: v, editedAt: Date.now() } : x)) }));
@@ -402,7 +406,6 @@ export function TxDialog({ c }: { c: Ctx }) {
   };
   const canRule = sx.src !== "Manuell" && normKey(sx.payee || "").length >= 3;
   const potLabel = sx.cat === TRANSFER ? (sx.amount < 0 ? "Eingezahlt in" : "Entnommen aus") : sx.amount > 0 ? "Eingegangen in" : "Bezahlt aus";
-  const fixSrc = sx.fixManual != null ? " (nur diese Buchung)" : fe ? " (laut Liste: „" + fe.name + "“)" : "";
   const canFix = sx.amount < 0 && sx.cat !== TRANSFER;
   return (
     <Sheet label="Buchung" onClose={close}>
@@ -417,6 +420,17 @@ export function TxDialog({ c }: { c: Ctx }) {
       </span>
       <span style="font-size:14px;color:var(--color-neutral-700)">{dLabel(sx.date) + " · " + (sx.acct || "")}</span>
       {!!sx.purpose && <p style="margin:0;font-size:14px;overflow-wrap:anywhere">{sx.purpose}</p>}
+      <div class="field">
+        <label>Notiz</label>
+        <textarea
+          class="input"
+          rows={2}
+          value={sx.note || ""}
+          onInput={setNote}
+          placeholder="Wofür war die Buchung? z. B. Geburtstagsgeschenk Oma, Rechnung Nr. 123"
+          style="min-height:44px;resize:vertical;font-family:inherit"
+        ></textarea>
+      </div>
       <div class="field">
         <label>Kategorie</label>
         <select class="input" value={sx.cat || ""} onChange={setCat} style="min-height:44px">
@@ -448,48 +462,59 @@ export function TxDialog({ c }: { c: Ctx }) {
               {o.l}
             </option>
           ))}
-          <option value="__new">+ Neuer Topf …</option>
+          <option value="__new">+ Neuer Spartopf …</option>
         </select>
       </div>
       {sx.pot == null && !!potOf(sx, d) && (
         <span style="font-size:13px;color:var(--color-neutral-700)">{"Automatisch über die Kategorie „" + sx.cat + "“. Einzeln umstellbar."}</span>
       )}
-      <div class="field">
-        <label>Notiz</label>
-        <textarea
-          class="input"
-          rows={2}
-          value={sx.note || ""}
-          onInput={setNote}
-          placeholder="Wofür war die Buchung? z. B. Geburtstagsgeschenk Oma, Rechnung Nr. 123"
-          style="min-height:44px;resize:vertical;font-family:inherit"
-        ></textarea>
-      </div>
       <label class="radio" style="font-size:14px">
         <input type="checkbox" checked={!!sx.oneoff} onChange={toggleOne} style="accent-color:var(--color-accent)" />
         Einmalig – zählt nicht in Durchschnitte und Budgets
       </label>
       {canFix && (
-        <label class="radio" style="font-size:14px">
-          <input type="checkbox" checked={fxOn} onChange={toggleFix} style="accent-color:var(--color-accent)" />
-          Fixkosten{fixSrc}
-        </label>
-      )}
-      {!!s.fixAsk && (
-        <div style="display:flex;flex-direction:column;gap:var(--space-2);padding:var(--space-3) 0;border-top:1px solid var(--color-accent);border-bottom:1px solid var(--color-accent)">
-          <span style="font-size:14px">{s.fixAsk === "off" ? "Auch aus der Fixkosten-Liste entfernen?" : "Wie soll das gelten?"}</span>
-          <div style="display:flex;flex-wrap:wrap;gap:var(--space-2)">
-            <button class="btn btn-primary" onClick={() => app.setFix(sx, s.fixAsk === "on" ? "onList" : "offList")}>
-              {s.fixAsk === "off" ? "Aus der Liste entfernen" : "Als Fixkosten merken"}
-            </button>
-            <button class="btn btn-secondary" onClick={() => app.setFix(sx, s.fixAsk === "on" ? "onOnly" : "offOnly")}>
-              Nur diese Buchung
-            </button>
-            <button class="btn btn-ghost" onClick={() => app.setState({ fixAsk: null })}>
-              Abbrechen
-            </button>
+        <>
+          <div class="field">
+            <label>Gehört zu Fixkosten</label>
+            <select class="input" value={fixVal} onChange={setFixSel} style="min-height:44px">
+              <option value="">Keine Fixkosten</option>
+              {fixVal === "__manual" && <option value="__manual">Fixkosten (ohne Eintrag)</option>}
+              {d.fixed.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {(f.name || "Ohne Namen") + (N(f.amount) > 0 ? " · " + f2(N(f.amount)) : "")}
+                </option>
+              ))}
+              <option value="__new">+ Neu als Fixkosten merken</option>
+            </select>
           </div>
-        </div>
+          {!!fixInfo && <span style="font-size:13px;color:var(--color-neutral-700);font-variant-numeric:tabular-nums">{fixInfo}</span>}
+          {canAll && (
+            <label class="radio" style="font-size:14px">
+              <input
+                type="checkbox"
+                checked={fixAll}
+                onChange={() => app.setState((x) => ({ fixAll: x.fixAll === false }))}
+                style="accent-color:var(--color-accent)"
+              />
+              {"Zuordnung für alle Buchungen von „" + payeeKey + "“ übernehmen"}
+            </label>
+          )}
+          {sug && (
+            <div style="display:flex;flex-direction:column;gap:var(--space-2);padding:var(--space-3) 0;border-top:1px solid var(--color-accent);border-bottom:1px solid var(--color-accent)">
+              <span style="font-size:14px;font-variant-numeric:tabular-nums">
+                {"Vorschlag: Das könnte „" + (sug.f.name || "Fixkosten") + "“ sein · geplant " + f2(-N(sug.f.amount)) + ", noch offen."}
+              </span>
+              <div style="display:flex;flex-wrap:wrap;gap:var(--space-2)">
+                <button class="btn btn-primary" onClick={() => app.assignFix(sx, sug.f.id, fixAll)}>
+                  Zuordnen
+                </button>
+                <button class="btn btn-ghost" onClick={() => app.rejectFix(sx.id, sug.f.id)}>
+                  Nein, passt nicht
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
       {sx.src === "Manuell" && (
         <div>

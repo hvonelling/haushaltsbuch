@@ -1,9 +1,9 @@
-// Übersicht: Monatsbilanz, Aufteilung der Gehälter, Sparpotenzial, Töpfe, Budgets.
+// Übersicht: Monatsbilanz, Aufteilung der Gehälter, Sparpotenzial, Spartöpfe, Budgets.
 
 import { INCATS, TRANSFER } from "../domain/constants";
 import { MONTHS, TODAY_YM, ymLong, nowDate } from "../domain/dates";
 import { f0, N } from "../domain/format";
-import { fixedIn, fixOpenIn, isFix, potBal, potOf, ymOf } from "../domain/ledger";
+import { fixedIn, fixOpenIn, fixSuggestions, isFix, potBal, potOf, ymOf } from "../domain/ledger";
 import { kpiOf, type Ctx } from "../app/ctx";
 import { AlertRow, kicker } from "../ui/parts";
 import { calendarVM } from "./Calendar";
@@ -13,7 +13,7 @@ import { unlinkedFixedCount } from "./Fixed";
 import { openBankAsks } from "./More";
 
 export function overviewVM(c: Ctx) {
-  const { d, s, st, sel, EXPC, budgets, go, months } = c;
+  const { d, s, st, sel, EXPC, budgets, go } = c;
   const ms = {
     aus: f0(st.aus),
     line:
@@ -97,7 +97,7 @@ export function overviewVM(c: Ctx) {
     aW = (v: number) => ((Math.max(0, v) / aBase) * 100).toFixed(2) + "%",
     aP = (v: number) => (E > 0 ? Math.round((v / E) * 100) + " %" : "—"),
     past = sel < TODAY_YM();
-  type AItem = { label: string; amt: string; pct: string; sw: string; wt: number; sub: string; cur?: string; go?: () => void };
+  type AItem = { label: string; amt: string; pct: string; sw: string; wt: number; sub: string; cur?: string; go?: () => void; col?: string };
   const aItems: AItem[] = [
     {
       label: "Fixkosten  ›",
@@ -145,11 +145,12 @@ export function overviewVM(c: Ctx) {
   aItems.push(
     spLeft < -0.5
       ? {
-          label: "Fehlbetrag",
-          amt: f0(-spLeft),
+          label: "Sparpotenzial",
+          amt: "−" + f0(-spLeft),
           pct: aP(-spLeft),
-          sw: "var(--color-text)",
+          sw: "var(--color-neg)",
           wt: 600,
+          col: "var(--color-neg)",
           sub: "Mehr verplant und ausgegeben als eingegangen",
         }
       : {
@@ -158,6 +159,7 @@ export function overviewVM(c: Ctx) {
           pct: aP(spA),
           sw: "var(--color-accent-300)",
           wt: 400,
+          col: "var(--color-pos)",
           sub: "Rest nach Fixkosten, Budgets und Ausgaben ohne Budget",
         },
   );
@@ -177,9 +179,9 @@ export function overviewVM(c: Ctx) {
   const bar = {
     ein: f0(E),
     rows,
-    restL: neg ? "Fehlbetrag" : "Sparpotenzial",
+    restL: "Sparpotenzial",
     rest: (neg ? "−" : "") + f0(Math.abs(spLeft)),
-    restCol: neg ? "var(--color-text)" : "var(--color-accent-700)",
+    restCol: neg ? "var(--color-neg)" : "var(--color-pos)",
     spW: spPlan > 0 ? (((cap - svIn) / spBase) * 100).toFixed(1) + "%" : "0%",
     eatW,
     spNote,
@@ -188,7 +190,7 @@ export function overviewVM(c: Ctx) {
     spSub: parts.length ? "davon " + parts.join(" · ") : "Einnahmen − Fixkosten − Budgets",
     saveW: spPlan > 0 ? ((svIn / spBase) * 100).toFixed(1) + "%" : "0%",
     hasSave: sv > 0.5,
-    saveNote: "In Töpfe gespart " + f0(sv) + " · " + (fr >= -0.5 ? "noch frei " + f0(fr) : f0(-fr) + " mehr gespart als übrig"),
+    saveNote: "In Spartöpfe gespart " + f0(sv) + " · " + (fr >= -0.5 ? "noch frei " + f0(fr) : f0(-fr) + " mehr gespart als übrig"),
     saveCol: fr < -0.5 ? "var(--color-text)" : "var(--color-neutral-700)",
     saveWt: fr < -0.5 ? 600 : 400,
   };
@@ -253,7 +255,7 @@ export function overviewVM(c: Ctx) {
     open: () => c.openCat(cat),
   }));
 
-  // --- Töpfe
+  // --- Spartöpfe
   const dueRows = potsDueRows(c);
   const ovOpen = !!s.potsOpen;
   const mn = MONTHS[+sel.slice(5) - 1];
@@ -261,7 +263,7 @@ export function overviewVM(c: Ctx) {
     has: c.pots.length > 0,
     open: ovOpen,
     icon: ovOpen ? "−" : "+",
-    label: "Töpfe (" + c.pots.length + ")",
+    label: "Spartöpfe (" + c.pots.length + ")",
     total: f0(c.pots.reduce((a, p) => a + potBal(p, d).bal, 0)),
     rows: c.pots.map((p) => {
       const b = potBal(p, d),
@@ -294,16 +296,17 @@ export function overviewVM(c: Ctx) {
   const asks = openBankAsks(d);
   const nNew = d.fixed.filter((f) => f.isNew).length;
   const dirty = (d.changedAt || 0) > (d.savedAt || 0) && d.tx.length > 0;
+  const nFixSug = fixSuggestions(d).length;
 
   return {
     selLabel: ymLong(sel),
     prevMonth: () => {
-      const mi = months.indexOf(sel);
-      if (mi > 0) c.app.setState({ month: months[mi - 1] });
+      const mi = c.navMonths.indexOf(sel);
+      if (mi > 0) c.app.setState({ month: c.navMonths[mi - 1] });
     },
     nextMonth: () => {
-      const mi = months.indexOf(sel);
-      if (mi >= 0 && mi < months.length - 1) c.app.setState({ month: months[mi + 1] });
+      const mi = c.navMonths.indexOf(sel);
+      if (mi >= 0 && mi < c.navMonths.length - 1) c.app.setState({ month: c.navMonths[mi + 1] });
     },
     ms,
     bar,
@@ -326,6 +329,9 @@ export function overviewVM(c: Ctx) {
     hasUnlinked: unlinkedN > 0,
     unlinkedText: unlinkedN + (unlinkedN === 1 ? " Fixkosten-Eintrag" : " Fixkosten-Einträge") + " ohne Buchung – verknüpfen",
     dirty,
+    hasFixSug: nFixSug > 0,
+    fixSugText: nFixSug + (nFixSug === 1 ? " Buchung passt" : " Buchungen passen") + " zu offenen Fixkosten – prüfen",
+    sparCol: c.noInc ? "var(--color-text)" : c.spar < 0 ? "var(--color-neg)" : "var(--color-pos)",
   };
 }
 
@@ -358,6 +364,62 @@ export function Overview({ c }: { c: Ctx }) {
             </>
           )}
           <span style={"font-size:15px;color:var(--color-neutral-700);" + num}>Ausgaben {v.ms.aus}</span>
+        {v.ov.has && (
+          <div style="display:flex;flex-direction:column;border-top:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);margin-top:var(--space-2)">
+            <button
+              onClick={v.ov.toggle}
+              aria-expanded={v.ov.open}
+              style="all:unset;box-sizing:border-box;cursor:pointer;display:flex;justify-content:space-between;align-items:baseline;gap:var(--space-3);padding:var(--space-3) 0;min-height:48px"
+            >
+              <span style="font-size:15px">{v.ov.label}</span>
+              <span style="display:flex;align-items:baseline;gap:var(--space-2)">
+                <span style={"font-family:var(--font-heading);font-size:24px;" + num}>{v.ov.total}</span>
+                <span
+                  aria-hidden="true"
+                  style={
+                    "font-size:18px;color:var(--color-neutral-700);width:16px;text-align:center;display:inline-block;transition:transform .15s;transform:rotate(" +
+                    (v.ov.open ? "90deg" : "0deg") +
+                    ")"
+                  }
+                >
+                  ›
+                </span>
+              </span>
+            </button>
+            {v.ov.open && (
+              <>
+                {v.ov.rows.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={p.open}
+                    style="all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px var(--space-3);align-items:baseline;padding:var(--space-2) 0;border-top:1px solid var(--color-divider);min-height:48px"
+                  >
+                    <span>{p.name}</span>
+                    <span style={num}>
+                      {p.bal}
+                      {"  ›"}
+                    </span>
+                    {p.hasGoal && (
+                      <div style="grid-column:1 / -1;height:6px;border-radius:var(--radius-sm);background:var(--color-neutral-200);overflow:hidden">
+                        <div style={"height:6px;width:" + p.goalW + ";background:var(--color-accent-700)"}></div>
+                      </div>
+                    )}
+                    <span style={"grid-column:1 / -1;font-size:13px;color:var(--color-neutral-700);" + num}>{p.sub}</span>
+                  </button>
+                ))}
+                {v.ov.hasDue && (
+                  <button
+                    onClick={goView.toepfe}
+                    style="all:unset;box-sizing:border-box;cursor:pointer;display:flex;justify-content:space-between;gap:var(--space-3);padding:var(--space-2) 0;border-top:1px solid var(--color-accent);color:var(--color-accent-700);min-height:44px;align-items:center"
+                  >
+                    <span>{v.ov.dueText}</span>
+                    <span>›</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
         </section>
 
         <section style="display:flex;flex-direction:column;gap:var(--space-4)">
@@ -392,7 +454,7 @@ export function Overview({ c }: { c: Ctx }) {
               >
                 <span style={"width:10px;height:10px;border-radius:2px;background:" + a.sw}></span>
                 <span style={"font-size:15px;font-weight:" + a.wt}>{a.label}</span>
-                <span style={"font-size:15px;" + num + ";font-weight:" + a.wt}>{a.amt}</span>
+                <span style={"font-size:15px;" + num + ";font-weight:" + a.wt + (a.col ? ";color:" + a.col : "")}>{a.amt}</span>
                 <span style={"font-size:13px;color:var(--color-neutral-700);" + num + ";text-align:right"}>{a.pct}</span>
                 <span style={"grid-column:2 / -1;font-size:13px;color:var(--color-neutral-700);" + num}>{a.sub}</span>
               </button>
@@ -434,77 +496,62 @@ export function Overview({ c }: { c: Ctx }) {
           </div>
         </section>
 
-        {v.ov.has && (
+        {v.soon.has && (
           <section style="display:flex;flex-direction:column;border-top:1px solid var(--color-text)">
             <button
-              onClick={v.ov.toggle}
-              aria-expanded={v.ov.open}
+              onClick={() => app.setState((x) => ({ soonOpen: !x.soonOpen }))}
+              aria-expanded={!!c.s.soonOpen}
               style="all:unset;box-sizing:border-box;cursor:pointer;display:flex;justify-content:space-between;align-items:baseline;gap:var(--space-3);padding:var(--space-3) 0;min-height:48px"
             >
-              <span style="font-size:15px">{v.ov.label}</span>
+              <span style="font-size:15px">Demnächst fällig ({v.soon.count})</span>
               <span style="display:flex;align-items:baseline;gap:var(--space-2)">
-                <span style={"font-family:var(--font-heading);font-size:24px;" + num}>{v.ov.total}</span>
-                <span style="font-size:18px;color:var(--color-neutral-700);width:16px;text-align:center">{v.ov.icon}</span>
+                <span style={"font-family:var(--font-heading);font-size:24px;" + num}>{v.soon.sumL}</span>
+                <span
+                  aria-hidden="true"
+                  style={
+                    "font-size:18px;color:var(--color-neutral-700);width:16px;text-align:center;display:inline-block;transition:transform .15s;transform:rotate(" +
+                    (c.s.soonOpen ? "90deg" : "0deg") +
+                    ")"
+                  }
+                >
+                  ›
+                </span>
               </span>
             </button>
-            {v.ov.open && (
+            {c.s.soonOpen && (
               <>
-                {v.ov.rows.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={p.open}
-                    style="all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px var(--space-3);align-items:baseline;padding:var(--space-2) 0;border-top:1px solid var(--color-divider);min-height:48px"
-                  >
-                    <span>{p.name}</span>
-                    <span style={num}>
-                      {p.bal}
-                      {"  ›"}
-                    </span>
-                    {p.hasGoal && (
-                      <div style="grid-column:1 / -1;height:6px;border-radius:var(--radius-sm);background:var(--color-neutral-200);overflow:hidden">
-                        <div style={"height:6px;width:" + p.goalW + ";background:var(--color-accent-700)"}></div>
+                {v.soon.months.map((m) => (
+                  <div key={m.ym} style="display:flex;flex-direction:column;padding-bottom:var(--space-2)">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--space-3);padding:var(--space-2) 0 var(--space-1);border-top:1px solid var(--color-divider)">
+                      <span style="font-family:var(--font-heading);font-weight:600;font-size:16px">{m.label}</span>
+                      <span style={"font-size:13px;color:var(--color-neutral-700);" + num}>{m.sumL}</span>
+                    </div>
+                    {m.items.map((o, i) => (
+                      <div
+                        key={i}
+                        style="display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:2px var(--space-3);align-items:baseline;padding:var(--space-1) 0"
+                      >
+                        <span style={"font-size:14px;" + num + ";color:var(--color-neutral-700)"}>{o.dateL}</span>
+                        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{o.name}</span>
+                        <span style={num + ";white-space:nowrap;color:" + o.amtCol}>{o.amtL}</span>
+                        <span></span>
+                        <span style={"grid-column:2 / -1;font-size:13px;color:" + o.subCol + ";font-weight:" + o.subW}>{o.sub}</span>
                       </div>
-                    )}
-                    <span style={"grid-column:1 / -1;font-size:13px;color:var(--color-neutral-700);" + num}>{p.sub}</span>
-                  </button>
+                    ))}
+                  </div>
                 ))}
-                {v.ov.hasDue && (
-                  <button
-                    onClick={goView.toepfe}
-                    style="all:unset;box-sizing:border-box;cursor:pointer;display:flex;justify-content:space-between;gap:var(--space-3);padding:var(--space-2) 0;border-top:1px solid var(--color-accent);color:var(--color-accent-700);min-height:44px;align-items:center"
-                  >
-                    <span>{v.ov.dueText}</span>
-                    <span>›</span>
-                  </button>
-                )}
+                <button
+                  onClick={goView.kalender}
+                  style="all:unset;box-sizing:border-box;cursor:pointer;display:flex;justify-content:space-between;gap:var(--space-3);padding:var(--space-2) 0;border-top:1px solid var(--color-divider);color:var(--color-accent-700);min-height:44px;align-items:center"
+                >
+                  <span>Alle Termine im Kalender</span>
+                  <span>›</span>
+                </button>
               </>
             )}
           </section>
         )}
-
-        {v.soon.has && (
-          <section style="display:flex;flex-direction:column;border-top:1px solid var(--color-text)">
-            <button
-              onClick={goView.kalender}
-              style="all:unset;box-sizing:border-box;cursor:pointer;display:flex;justify-content:space-between;align-items:baseline;gap:var(--space-3);padding:var(--space-3) 0;min-height:48px"
-            >
-              <span style="font-size:15px">Demnächst fällig</span>
-              <span style="font-size:14px;color:var(--color-neutral-700)">Kalender{"  ›"}</span>
-            </button>
-            {v.soon.items.map((o, i) => (
-              <div
-                key={i}
-                style="display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:2px var(--space-3);align-items:baseline;padding:var(--space-2) 0;border-bottom:1px solid var(--color-divider)"
-              >
-                <span style={"font-size:14px;" + num + ";color:var(--color-neutral-700)"}>{o.dateL}</span>
-                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{o.name}</span>
-                <span style={num + ";white-space:nowrap;color:" + o.amtCol}>{o.amtL}</span>
-                <span></span>
-                <span style={"grid-column:2 / -1;font-size:13px;color:" + o.subCol + ";font-weight:" + o.subW}>{o.sub}</span>
-              </div>
-            ))}
-          </section>
-        )}
+        {v.hasFixSug && <AlertRow text={v.fixSugText} onClick={() => app.setState({ fixSugOpen: true })} />}
         {v.hasBankAsk && <AlertRow text={v.bankAskText} onClick={() => app.setState({ askOpen: true })} />}
         {v.hasNewFix && <AlertRow text={v.newFixText} onClick={() => go("planung", "fixkosten")} />}
         {v.dirty && !c.s.gh && <AlertRow text="Ungesicherte Änderungen – mit iCloud abgleichen" onClick={() => go("mehr", null)} />}
@@ -579,7 +626,7 @@ export function Overview({ c }: { c: Ctx }) {
         <section style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-4);border-top:1px solid var(--color-divider);padding-top:var(--space-4)">
           <button onClick={() => go("planung", null)} style="all:unset;cursor:pointer;display:flex;flex-direction:column;gap:2px">
             <span style={kicker}>Sparpotenzial</span>
-            <span style={"font-family:var(--font-heading);font-size:34px;line-height:1.1;" + num + ";color:var(--color-accent-700)"}>{v.kpi.spar}</span>
+            <span style={"font-family:var(--font-heading);font-size:34px;line-height:1.1;" + num + ";color:" + v.sparCol}>{v.kpi.spar}</span>
             <span style="font-size:13px;color:var(--color-neutral-700)">{v.kpi.sparNote}</span>
           </button>
           <button onClick={() => go("planung", null)} style="all:unset;cursor:pointer;display:flex;flex-direction:column;gap:2px">

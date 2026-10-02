@@ -1,9 +1,9 @@
 // Fixkosten-Liste, erkannte wiederkehrende Zahlungen, Verknüpfen mit Buchungen.
 
 import { CUTOFF_DAY, FIXCATS, INTERVALS, TRANSFER } from "../domain/constants";
-import { addM, dLabel, MONTHS, TODAY_YM } from "../domain/dates";
+import { addM, dLabel, MONTHS, TODAY_YM, ymLong } from "../domain/dates";
 import { f0, f2, N, uid } from "../domain/format";
-import { fixEntry, fixedIn } from "../domain/ledger";
+import { fixEntry, fixedIn, fixSuggestions } from "../domain/ledger";
 import { normKey } from "../domain/rules";
 import type { Data, Fixed as FixedT, Tx } from "../domain/types";
 import { kpiOf, type Ctx } from "../app/ctx";
@@ -106,7 +106,7 @@ export function FixedScreen({ c }: { c: Ctx }) {
                 nk +
                 "“, aber keine passende Ausgabe gefunden" +
                 (d.tx.some((t) => t.cat === TRANSFER && normKey(t.payee || "") === nk)
-                  ? " – die Buchungen sind als „Umbuchung / Sparen“ kategorisiert. Als Topf führen oder Eintrag entfernen"
+                  ? " – die Buchungen sind als „Umbuchung / Sparen“ kategorisiert. Als Spartopf führen oder Eintrag entfernen"
                   : "")
               : "Noch keine Buchung verknüpft"
             : f.key
@@ -340,6 +340,55 @@ export function FixLinkDialog({ c }: { c: Ctx }) {
           Keine passende Buchung gefunden. Wird der Betrag von einem anderen Konto abgebucht, setze „Wird nicht von unseren Konten abgebucht“.
         </span>
       )}
+    </Sheet>
+  );
+}
+
+/** Dialog: Passt diese Buchung zu einem offenen Fixkosten-Eintrag? */
+export function FixSuggestDialog({ c }: { c: Ctx }) {
+  const { d, s, app } = c;
+  const list = fixSuggestions(d);
+  if (!s.fixSugOpen || !list.length) return null;
+  const { f, t, ym } = list[0];
+  const close = () => app.setState({ fixSugOpen: false });
+  const nk = normKey(t.payee || "");
+  const fixAll = s.fixAll !== false;
+  const kick = "font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:var(--color-neutral-700)";
+  return (
+    <Sheet label="Fixkosten zuordnen" onClose={close}>
+      <SheetHead title={"Ist das „" + (f.name || "Fixkosten") + "“?"} closeLabel="Später" onClose={close} />
+      <div style="display:flex;flex-direction:column;gap:2px;padding:var(--space-2) 0;border-bottom:1px solid var(--color-divider)">
+        <span style={kick}>Buchung</span>
+        <span style="font-variant-numeric:tabular-nums">{(t.payee || "—") + " · " + f2(t.amount)}</span>
+        <span style="font-size:13px;color:var(--color-neutral-700);overflow-wrap:anywhere">
+          {dLabel(t.date) + " · " + t.cat + (t.acct ? " · " + t.acct : "") + (t.purpose ? " · " + t.purpose.slice(0, 80) : "")}
+        </span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px;padding:var(--space-2) 0;border-bottom:1px solid var(--color-divider)">
+        <span style={kick}>Offene Fixkosten</span>
+        <span style="font-variant-numeric:tabular-nums">{(f.name || "Fixkosten") + " · " + f2(-N(f.amount))}</span>
+        <span style="font-size:13px;color:var(--color-neutral-700)">{"fällig " + ymLong(ym) + " · noch keine Abbuchung gefunden"}</span>
+      </div>
+      {nk.length >= 3 && (
+        <label class="radio" style="font-size:14px">
+          <input
+            type="checkbox"
+            checked={fixAll}
+            onChange={() => app.setState((x) => ({ fixAll: x.fixAll === false }))}
+            style="accent-color:var(--color-accent)"
+          />
+          {"Künftig alle Buchungen von „" + nk + "“ so zuordnen"}
+        </label>
+      )}
+      <div style="display:flex;flex-wrap:wrap;gap:var(--space-2)">
+        <button class="btn btn-primary" onClick={() => app.assignFix(t, f.id, fixAll)}>
+          Ja, zuordnen
+        </button>
+        <button class="btn btn-secondary" onClick={() => app.rejectFix(t.id, f.id)}>
+          Nein, passt nicht
+        </button>
+      </div>
+      <span style="font-size:13px;color:var(--color-neutral-700)">{list.length > 1 ? "Noch " + (list.length - 1) + " weitere" : ""}</span>
     </Sheet>
   );
 }
