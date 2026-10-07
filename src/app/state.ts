@@ -27,8 +27,9 @@ export interface QuickAdd {
   payee: string;
   amount: string;
   cat: string;
+  /** "" = automatisch nach Kategorie, "__none" = ausdrücklich Haushaltsgeld, sonst Spartopf-ID */
   pot: string;
-  dir: "aus" | "ein";
+  dir: "aus" | "ein" | "spar";
   note: string;
 }
 

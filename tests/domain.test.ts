@@ -151,3 +151,17 @@ describe("Abgleich zweier Geräte", () => {
     expect(() => parseBackup('{"foo":1}')).toThrow("Keine Haushaltsbuch-Sicherung");
   });
 });
+
+import { parseEuro } from "../src/domain/format";
+describe("Betragseingabe", () => {
+  it("versteht Komma, Tausenderpunkt und Dezimalpunkt", () => {
+    expect(parseEuro("12,50")).toBe(12.5);
+    expect(parseEuro("1.234,50")).toBe(1234.5);
+    expect(parseEuro("12.50")).toBe(12.5);
+    expect(parseEuro("12.5")).toBe(12.5);
+    expect(parseEuro("1.234")).toBe(1234);
+    expect(parseEuro("7")).toBe(7);
+    expect(parseEuro("12,50 €")).toBe(12.5);
+    expect(parseEuro("abc")).toBe("");
+  });
+});

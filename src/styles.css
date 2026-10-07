@@ -279,3 +279,6 @@ select.input{appearance:auto}
 .fab:hover{background:var(--color-accent-100) !important}
 /* Grün und Rot gibt es nur beim Sparpotenzial: Plus grün, Minus rot. */
 :root{--color-pos:#2c7a4b;--color-neg:#b3362b}
+/* Häkchen in Beschriftungen sichtbar machen (das Design-System blendet sie sonst wie Radio-Knöpfe aus). */
+.radio input[type="checkbox"]{position:static;opacity:1;width:18px;height:18px;flex:none;pointer-events:auto;accent-color:var(--color-accent);margin:0}
+.radio:has(input[type="checkbox"]){align-items:flex-start;min-height:32px;line-height:1.35}

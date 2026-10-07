@@ -39,5 +39,18 @@ export const pNum = (v: unknown): number | "" => {
   return isNaN(n) ? "" : n;
 };
 
+/**
+ * Von Hand eingegebenen Euro-Betrag lesen. Versteht "12,50", "1.234,50" und auch "12.50"
+ * (Punkt als Dezimalzeichen, wenn kein Komma vorkommt und ein bis zwei Stellen folgen).
+ */
+export function parseEuro(v: unknown): number | "" {
+  const s = String(v).trim();
+  if (!s.includes(",") && /^-?\d+\.\d{1,2}$/.test(s.replace(/[^\d.-]/g, ""))) {
+    const n = parseFloat(s.replace(/[^\d.-]/g, ""));
+    return isNaN(n) ? "" : n;
+  }
+  return pNum(s);
+}
+
 export const uid = () => Math.random().toString(36).slice(2, 9);
 export const cleanIban = (s: string | null | undefined) => (s || "").replace(/\s/g, "").toUpperCase();

@@ -2,13 +2,14 @@
 
 import { CATS, INCATS, TRANSFER } from "../domain/constants";
 import { dLabel, ymLabel, TODAY_YM } from "../domain/dates";
-import { f2, N, uid } from "../domain/format";
+import { f2, N, parseEuro, uid } from "../domain/format";
 import { fixEntry, fixSuggestions, isFix, potOf } from "../domain/ledger";
 import { normKey, recat } from "../domain/rules";
 import type { Data, Tx } from "../domain/types";
 import { askName, withCat } from "../app/App";
 import type { Ctx } from "../app/ctx";
-import { Sheet, SheetHead, val } from "../ui/parts";
+import { Seg, Sheet, SheetHead, val } from "../ui/parts";
+import { useState } from "preact/hooks";
 
 export function transactionsVM(c: Ctx) {
   const { d, s, app, ALLC, budgets, pots, potName, months } = c;
@@ -358,6 +359,80 @@ export function Transactions({ c }: { c: Ctx }) {
   );
 }
 
+/**
+ * Empfänger, Betrag und Datum einer manuellen Buchung ändern.
+ * Übernommen wird beim Verlassen des Feldes, damit halbe Eingaben ("12,") nicht stören.
+ */
+const fmtAmt = (v: number) => Math.abs(v).toFixed(2).replace(".", ",");
+
+function ManualEdit({ c, sx }: { c: Ctx; sx: Tx }) {
+  const { app } = c;
+  const [payee, setPayee] = useState(sx.payee || "");
+  const [amount, setAmount] = useState(fmtAmt(sx.amount));
+  const save = (patch: Partial<Tx>) =>
+    app.mut((dd) => {
+      const nd = { ...dd, tx: dd.tx.map((x) => (x.id === sx.id ? { ...x, ...patch, editedAt: Date.now() } : x)) };
+      nd.tx = recat(nd);
+      return nd;
+    });
+  const commitPayee = () => {
+    const v = payee.trim();
+    if (!v) setPayee(sx.payee || "");
+    else if (v !== sx.payee) save({ payee: v });
+  };
+  const commitAmount = () => {
+    const n = parseEuro(amount);
+    if (n === "" || !(Math.abs(n) > 0)) {
+      setAmount(fmtAmt(sx.amount));
+      app.setState({ msg: "Bitte einen gültigen Betrag eingeben." });
+      return;
+    }
+    const v = Math.round(Math.abs(n) * 100) / 100;
+    if (v !== Math.abs(sx.amount)) save({ amount: sx.amount < 0 ? -v : v });
+    setAmount(fmtAmt(v));
+  };
+  const blurOnEnter = (e: KeyboardEvent) => {
+    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+  };
+  const isTransfer = sx.cat === TRANSFER;
+  return (
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-3);padding:var(--space-3) 0;border-top:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider)">
+      <div class="field" style="grid-column:1 / -1">
+        <label>Empfänger</label>
+        <input class="input" value={payee} onInput={(e) => setPayee(val(e))} onBlur={commitPayee} onKeyDown={blurOnEnter} style="min-height:44px" />
+      </div>
+      <div class="field">
+        <label>Betrag €</label>
+        <input class="input" inputMode="decimal" value={amount} onInput={(e) => setAmount(val(e))} onBlur={commitAmount} onKeyDown={blurOnEnter} style="min-height:44px" />
+      </div>
+      <div class="field">
+        <label>Datum</label>
+        <input
+          class="input"
+          type="date"
+          value={sx.date}
+          onChange={(e) => {
+            const v = val(e);
+            if (/^\d{4}-\d\d-\d\d$/.test(v) && v !== sx.date) save({ date: v });
+          }}
+          style="min-height:44px"
+        />
+      </div>
+      {!isTransfer && (
+        <div style="grid-column:1 / -1">
+          <Seg
+            name="txdir"
+            options={[
+              { label: "Ausgabe", checked: sx.amount < 0, onChange: () => sx.amount > 0 && save({ amount: -sx.amount }) },
+              { label: "Einnahme", checked: sx.amount > 0, onChange: () => sx.amount < 0 && save({ amount: -sx.amount }) },
+            ]}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Dialog für eine einzelne Buchung. */
 export function TxDialog({ c }: { c: Ctx }) {
   const { d, s, app, ALLC, potOpts } = c;
@@ -420,6 +495,7 @@ export function TxDialog({ c }: { c: Ctx }) {
       </span>
       <span style="font-size:14px;color:var(--color-neutral-700)">{dLabel(sx.date) + " · " + (sx.acct || "")}</span>
       {!!sx.purpose && <p style="margin:0;font-size:14px;overflow-wrap:anywhere">{sx.purpose}</p>}
+      {sx.src === "Manuell" && <ManualEdit key={sx.id} c={c} sx={sx} />}
       <div class="field">
         <label>Notiz</label>
         <textarea
